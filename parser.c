@@ -74,7 +74,7 @@ int main()
 
     printf("Loading question bank.\n");
 
-    if (load_questions("E:\\ENGINEERING\\3rd year\\2nd term\\Network Programming\\Project\\QuestionBank.dat", &bank) == 0)
+    if (load_questions("QuestionBank.dat", &bank) == 0)
     {
         printf("Successfully loaded %zu questions.\n", bank.size);
     }
