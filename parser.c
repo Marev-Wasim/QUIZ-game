@@ -1,3 +1,7 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "stability.h"
 #include "questions.h"
 
 ///This logic should be called at your server's startup to populate the bank.
@@ -68,7 +72,7 @@ void free_bank(QuestionBank *bank)
 }
 
 int main()
-{
+{ setup_stability(); 
     QuestionBank bank;
     init_bank(&bank, 10); // Start with space for 10 questions
 
@@ -83,9 +87,11 @@ int main()
         printf("Failed to load questions.\n");
         return EXIT_FAILURE;
     }
-
+ lock_data(); 
+ long answer_time = get_current_time_ms();
+  printf("Processing answer at: %ld ms\n", answer_time);
     printf(bank.items[0].question_text);
-
+  unlock_data();
     // Clean up before server shutdown
     free_bank(&bank);
     return 0;
