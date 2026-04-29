@@ -76,7 +76,7 @@ int main()
             if(clients_fds[i] > maxfd) maxfd = clients_fds[i];
         }
 
-        /*🔴 TODO [Game Logic Lead]: 
+        /* 🔴 TODO [Game Logic Lead]: 
          * To implement the timer per question, replace the last NULL 
          * in Select() with a struct timeval timeout. 
          */
