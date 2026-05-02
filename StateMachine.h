@@ -1,10 +1,4 @@
-//typedef enum { listen, start } Lobby;
-//typedef enum { listen, nxtQ, brodcast } SendQuestion;
-//typedef enum { listen, expire } WaitForAnswers;
-//typedef enum { listen, compare, sendQ, gameOver} CalcResult;
-//typedef enum { listen, display, lobby, close } GameOver;
-
-//#include <sys/time.h>
+#include <sys/time.h>
 
 typedef enum
 {
@@ -17,7 +11,8 @@ typedef enum
 
 typedef enum { LISTEN, PROCESSING, BROADCAST } SubState;
 
-typedef struct {
+typedef struct
+{
     MainState current;     /* The active FSM phase */
     SubState status;       /* Internal status (e.g., listening vs broadcasting) */
     
@@ -25,7 +20,7 @@ typedef struct {
     int activePlayers;     /* Number of players currently in the LOBBY */
     int answersReceived;   /* Counter to trigger transition from WAIT_FOR_ANSWERS */
     
-    //struct timeval turnStartTime; /* Used with gettimeofday() for speed bonuses */
+    struct timeval Q_sent_time; /* Used with gettimeofday() for speed bonuses */
 } StateMachine;
 
 void initialize(StateMachine *m);
