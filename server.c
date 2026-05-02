@@ -3,11 +3,13 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <sys/time.h>
+#include <stdbool.h>      
 
 #include "NET_CORE/unp.h"
 #include "NET_CORE/config.h" 
 
-#include "player.h"      
+#include "player.h"       
 #include "stability.h"
 #include "questions.h"
 #include "StateMachine.h" // 🔴 Game Logic Lead's header
@@ -37,9 +39,12 @@ int main()
     Player clients[MAX_CLIENTS];
     for(int i = 0; i < MAX_CLIENTS; i++)
     {
-        clients[i].fd = -1;
+        clients[i].sockID = -1;              
         clients[i].score = 0;
-        clients[i].has_answered = 0;
+        clients[i].hasAnswered = false;      
+        clients[i].lastAnswer = -1;          
+        clients[i].responseTime.tv_sec = 0;  
+        clients[i].responseTime.tv_usec = 0;
     }
 
     struct in_addr my_ip;
@@ -76,7 +81,7 @@ int main()
 
         for(int i = 0; i < MAX_CLIENTS; i++)
         {
-            if(clients[i].fd > maxfd) maxfd = clients[i].fd;
+            if(clients[i].sockID > maxfd) maxfd = clients[i].sockID;
         }
 
         /* 🔴 TODO [Game Logic Lead]: 
@@ -93,12 +98,15 @@ int main()
 
             for(int i = 0; i < MAX_CLIENTS; i++)
             {
-                if(clients[i].fd == -1)
+                if(clients[i].sockID == -1)
                 {
                     lock_data();
-                    clients[i].fd = conn_sock; 
+                    clients[i].sockID = conn_sock; 
                     clients[i].score = 0;
-                    clients[i].has_answered = 0;
+                    clients[i].hasAnswered = false;
+                    clients[i].lastAnswer = -1;
+                    clients[i].responseTime.tv_sec = 0;
+                    clients[i].responseTime.tv_usec = 0;
                     FD_SET(conn_sock, &rset); 
                     unlock_data();
 
@@ -115,7 +123,7 @@ int main()
         // Handle Incoming Data from Current Players
         for(int i = 0; i < MAX_CLIENTS; i++) 
         {
-            int current_sock = clients[i].fd;
+            int current_sock = clients[i].sockID;
             
             if(current_sock != -1 && FD_ISSET(current_sock, &loop_set))
             {
@@ -125,7 +133,7 @@ int main()
                 {
                     printf("Player %d disconnected\n", current_sock);
                     lock_data();
-                    clients[i].fd = -1;
+                    clients[i].sockID = -1;
                     FD_CLR(current_sock, &rset);
                     Close(current_sock);
                     unlock_data();
