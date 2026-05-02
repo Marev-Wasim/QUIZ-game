@@ -3,27 +3,26 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include "unp.h"
+
+#include "NET_CORE/unp.h"
+#include "NET_CORE/config.h" 
+
+#include "player.h"      
 #include "stability.h"
 #include "questions.h"
-/* 🔴 Game Logic herer */
-#include "StateMachine.h"
+#include "StateMachine.h" // 🔴 Game Logic Lead's header
 
 /* 🔴 TODO [Protocol Designer]: 
  * Include your protocol header here once it is ready.
  * #include "protocol.h" 
  */
 
-#define MAX_CLIENTS 10
-#define PORT 8080
-#define MAX_BUFFER 1024 
-
 int main()
 {
-    //Stability Setup
+    // Stability Setup
     setup_stability();
 
-    //Question Bank Setup 
+    // Question Bank Setup 
     QuestionBank bank;
     init_bank(&bank, 10);
     printf("Loading question bank...\n");
@@ -34,11 +33,13 @@ int main()
     }
     printf("Successfully loaded %zu questions.\n", bank.size);
 
-    //Server Setup 
-    int clients_fds[MAX_CLIENTS];
+    // Server Setup
+    Player clients[MAX_CLIENTS];
     for(int i = 0; i < MAX_CLIENTS; i++)
     {
-        clients_fds[i] = -1;
+        clients[i].fd = -1;
+        clients[i].score = 0;
+        clients[i].has_answered = 0;
     }
 
     struct in_addr my_ip;
@@ -75,7 +76,7 @@ int main()
 
         for(int i = 0; i < MAX_CLIENTS; i++)
         {
-            if(clients_fds[i] > maxfd) maxfd = clients_fds[i];
+            if(clients[i].fd > maxfd) maxfd = clients[i].fd;
         }
 
         /* 🔴 TODO [Game Logic Lead]: 
@@ -84,7 +85,7 @@ int main()
          */
         int num = Select(maxfd + 1, &loop_set, NULL, NULL, NULL);
 
-        //Handle New Connections
+        // Handle New Connections
         if(FD_ISSET(listen_sock, &loop_set)) 
         {
             int conn_sock = Accept(listen_sock, NULL, NULL);
@@ -92,10 +93,12 @@ int main()
 
             for(int i = 0; i < MAX_CLIENTS; i++)
             {
-                if(clients_fds[i] == -1)
+                if(clients[i].fd == -1)
                 {
                     lock_data();
-                    clients_fds[i] = conn_sock; 
+                    clients[i].fd = conn_sock; 
+                    clients[i].score = 0;
+                    clients[i].has_answered = 0;
                     FD_SET(conn_sock, &rset); 
                     unlock_data();
 
@@ -109,22 +112,22 @@ int main()
             }
         }
 
-        //Handle Incoming Data from Current Players
+        // Handle Incoming Data from Current Players
         for(int i = 0; i < MAX_CLIENTS; i++) 
         {
-            int current_sock = clients_fds[i];
+            int current_sock = clients[i].fd;
             
             if(current_sock != -1 && FD_ISSET(current_sock, &loop_set))
             {
-                int n = recv(current_sock, buff, MAX_BUFFER, 0);
+                int n = Recv(current_sock, buff, MAX_BUFFER, 0);
                 
                 if(n == 0)
                 {
                     printf("Player %d disconnected\n", current_sock);
                     lock_data();
-                    clients_fds[i] = -1;
+                    clients[i].fd = -1;
                     FD_CLR(current_sock, &rset);
-                    close(current_sock);
+                    Close(current_sock);
                     unlock_data();
                 }
                 else if(n > 0)
@@ -139,12 +142,8 @@ int main()
                      * Once the packet is parsed by the protocol designer, check if it is an ANSWER.
                      * Compare the player's answer against bank.items[current_q].correct_index.
                      * Calculate the score based on get_current_time_ms() and update 
-                     * the player's score.
+                     * clients[i].score.
                      */
-                }
-                else
-                {
-                    printf("Error reading from client %d\n", current_sock);
                 }
             }
         }
@@ -154,7 +153,7 @@ int main()
          * if the question timer is up. If it is:
          * 1. (Game Logic Lead): Move to the next question index.
          * 2. (Protocol Designer): Build a Question Packet, serialize it, and loop 
-         * through clients_fds to broadcast it to all active players.
+         * through 'clients' array to broadcast it to all active players.
          */
     }
 
