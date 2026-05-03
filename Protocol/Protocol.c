@@ -78,12 +78,9 @@ int receive_message(int sockfd, Message* msg) {
 
 ssize_t writen(int fd, const void *vptr, size_t n)
 {
-    size_t
-    nleft;
-    ssize_t
-    nwritten;
-    const char
-    *ptr;
+    size_t nleft;
+    ssize_t nwritten;
+    const char *ptr;
     ptr = vptr;
     nleft = n;
     while (nleft > 0)
