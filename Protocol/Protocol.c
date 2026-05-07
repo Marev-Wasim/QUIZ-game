@@ -1,4 +1,4 @@
-#include "protocol.h"
+#include "Protocol.h"
 #include <string.h>
 
 void build_message(Message* msg, int type, const char* data) {
