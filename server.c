@@ -12,12 +12,7 @@
 #include "player.h"       
 #include "stability.h"
 #include "questions.h"
-#include "StateMachine.h" // 🔴 Game Logic Lead's header
-
-/* 🔴 TODO [Protocol Designer]:  DONE
- * Include your protocol header here once it is ready.
- * #include "protocol.h" 
- */
+#include "StateMachine.h" 
 #include "Protocol.h"
 
 int main()
@@ -32,11 +27,11 @@ int main()
     if (load_questions("QuestionBank.dat", &bank) != 0)
     {
         printf("Failed to load questions. Exiting.\n");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     printf("Successfully loaded %zu questions.\n", bank.size);
 
-    // Server Setup
+    // Server & Player Setup
     Player clients[MAX_CLIENTS];
     for(int i = 0; i < MAX_CLIENTS; i++)
     {
@@ -48,6 +43,16 @@ int main()
         clients[i].responseTime.tv_usec = 0;
     }
 
+    // State Machine Initialization
+    StateMachine fsm;
+    fsm.current = STATE_LOBBY;
+    fsm.status = LISTEN;
+    fsm.currentQuestionIdx = 0;
+    fsm.activePlayers = 0;
+    fsm.answersReceived = 0;
+    long question_start_time_ms = 0; // Helper to track the 10-second timer
+
+    // Network Socket Setup
     struct in_addr my_ip;
     struct sockaddr_in my_sock_addr;
     int listen_sock;
@@ -65,7 +70,6 @@ int main()
     my_sock_addr.sin_family = AF_INET;
 
     listen_sock = Socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-
     Bind(listen_sock, (void*)&my_sock_addr, sizeof(struct sockaddr_in));
     Listen(listen_sock, 5);
 
@@ -85,13 +89,12 @@ int main()
             if(clients[i].sockID > maxfd) maxfd = clients[i].sockID;
         }
 
-        /* 🔴 TODO [Game Logic Lead]: 
-         * To implement the timer per question, replace the last NULL 
-         * in Select() with a struct timeval timeout. 
-         */
-        int num = Select(maxfd + 1, &loop_set, NULL, NULL, NULL);
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 100000; 
 
-        // Handle New Connections
+        int num = Select(maxfd + 1, &loop_set, NULL, NULL, &tv);
+
         if(FD_ISSET(listen_sock, &loop_set)) 
         {
             int conn_sock = Accept(listen_sock, NULL, NULL);
@@ -106,26 +109,19 @@ int main()
                     clients[i].score = 0;
                     clients[i].hasAnswered = false;
                     clients[i].lastAnswer = -1;
-                    clients[i].responseTime.tv_sec = 0;
-                    clients[i].responseTime.tv_usec = 0;
+                    fsm.activePlayers++;
                     FD_SET(conn_sock, &rset); 
                     unlock_data();
 
-                    /* 🔴 TODO [Protocol Designer]: DONE
-                     * A new player just joined. Construct a "Welcome" or "Wait" packet 
-                     * using your protocol structs, serialize it, and send it to 'conn_sock'.
-                     */
-                     Message msg;
-
-                    build_message(&msg, WAITING, "Waiting for more players...");
+                    Message msg;
+                    build_message(&msg, WAITING, "Welcome! Waiting for the game to start...");
                     send_message(conn_sock, &msg);
-
                     break;
                 }
             }
         }
 
-        // Handle Incoming Data from Current Players
+        
         for(int i = 0; i < MAX_CLIENTS; i++) 
         {
             int current_sock = clients[i].sockID;
@@ -134,103 +130,139 @@ int main()
             {
                 int n = Recv(current_sock, buff, MAX_BUFFER, 0);
                 
-                if(n == 0)
+                if(n == 0) // Client Disconnected
                 {
                     printf("Player %d disconnected\n", current_sock);
                     lock_data();
                     clients[i].sockID = -1;
+                    fsm.activePlayers--;
                     FD_CLR(current_sock, &rset);
                     Close(current_sock);
                     unlock_data();
                 }
                 else if(n > 0)
                 {
-                    /* 🔴 TODO [Protocol Designer]: DONE
-                     * You have received 'n' raw bytes inside 'buff'.
-                     * Write a function to deserialize this raw buffer into 
-                     * your Protocol Struct so the Game Logic can process it.
-                     */
-                     Message msg;
-
-                    /* Convert raw received bytes into a Message struct */
+                    Message msg;
                     int status = deserialize(buff, n, &msg);
 
-                    if (status != PROTO_OK)
+                    if (status == PROTO_OK && msg.type == ANSWER)
                     {
-                        printf("Invalid or corrupted packet received\n");
-                        return;
+                        // Check if we are currently accepting answers
+                        if (fsm.current == STATE_WAIT_FOR_ANSWERS && !clients[i].hasAnswered)
+                        {
+                            lock_data();
+                            clients[i].hasAnswered = true;
+                            clients[i].lastAnswer = atoi(msg.data); // Assuming client sends "1", "2", etc.
+                            gettimeofday(&clients[i].responseTime, NULL); // Mark exact answer time
+                            fsm.answersReceived++;
+                            unlock_data();
+                            
+                            printf("Received answer from FD %d\n", current_sock);
+                        }
                     }
-
-                    /* 🔴 TODO [Game Logic Lead]:
-                     * Once the packet is parsed by the protocol designer, check if it is an ANSWER.
-                     * Compare the player's answer against bank.items[current_q].correct_index.
-                     * Calculate the score based on get_current_time_ms() and update 
-                     * clients[i].score.
-                     */
                 }
             }
         }
 
-        /* 🔴 TODO [Protocol Designer] & 🔴 TODO [Game Logic Lead]: Protocol DONE
-         * This area runs outside of the FD checks. Logic is needed here to check
-         * if the question timer is up. If it is:
-         * 1. (Game Logic Lead): Move to the next question index.
-         * 2. (Protocol Designer): Build a Question Packet, serialize it, and loop 
-         * through 'clients' array to broadcast it to all active players.
-         */
-
-        /* Current question number */
-        static int current_question_index = 0;
-
-        /* Check if there are still questions left */
-        if (current_question_index >= bank.size)
+        switch (fsm.current)
         {
-            printf("No more questions available.\n");
-        }
-        else
-        {
-            Message msg;
-
-            /* Get current question */
-            Question *q =
-                &bank.items[current_question_index];
-
-            char packet_data[1024];
-
-            /* Build formatted question packet */
-            snprintf(packet_data,
-                     sizeof(packet_data),
-                     "%s\n"
-                     "A) %s\n"
-                     "B) %s\n"
-                     "C) %s\n"
-                     "D) %s",
-                     q->question_text,
-                     q->options[0],
-                     q->options[1],
-                     q->options[2],
-                     q->options[3]);
-
-            /* Build protocol message */
-            build_message(&msg, QUESTION, packet_data);
-
-            /* Broadcast question to all active clients */
-            for (int i = 0; i < MAX_CLIENTS; i++)
-            {
-                if (clients[i].sockID != -1)
+            case STATE_LOBBY:
+                // Start game if we have at least 2 players (You can change this rule)
+                if (fsm.activePlayers >= 2) 
                 {
-                    int status =
-                        send_message(clients[i].sockID, &msg);
+                    printf("Enough players joined. Starting Game!\n");
+                    fsm.current = STATE_SEND_QUESTION;
+                }
+                break;
 
-                    if (status < 0)
-                    {
-                        printf("Failed to send question to client %d\n", i);
+            case STATE_SEND_QUESTION:
+                if (fsm.currentQuestionIdx >= bank.size)
+                {
+                    fsm.current = STATE_GAME_OVER;
+                    break;
+                }
+
+                Question *q = &bank.items[fsm.currentQuestionIdx];
+                char packet_data[1024];
+
+                // Reset player states for the new question
+                fsm.answersReceived = 0;
+                for (int i = 0; i < MAX_CLIENTS; i++) {
+                    if (clients[i].sockID != -1) {
+                        clients[i].hasAnswered = false;
+                        clients[i].lastAnswer = -1;
                     }
                 }
-            }
 
-            /* Move to next question */
-            current_question_index++;
+                snprintf(packet_data, sizeof(packet_data), "%s\n1) %s\n2) %s\n3) %s\n4) %s",
+                         q->question_text, q->options[0], q->options[1], q->options[2], q->options[3]);
+
+                Message q_msg;
+                build_message(&q_msg, QUESTION, packet_data);
+
+                // Broadcast
+                for (int i = 0; i < MAX_CLIENTS; i++) {
+                    if (clients[i].sockID != -1) {
+                        send_message(clients[i].sockID, &q_msg);
+                    }
+                }
+
+                printf("Sent Question %d to all players.\n", fsm.currentQuestionIdx + 1);
+                
+                // Start the timer
+                question_start_time_ms = get_current_time_ms();
+                gettimeofday(&fsm.Q_sent_time, NULL);
+                fsm.current = STATE_WAIT_FOR_ANSWERS;
+                break;
+
+            case STATE_WAIT_FOR_ANSWERS:
+                // Check if 10 seconds have passed OR everyone has answered
+                long current_time = get_current_time_ms();
+                if ((current_time - question_start_time_ms >= 10000) || 
+                    (fsm.answersReceived >= fsm.activePlayers && fsm.activePlayers > 0))
+                {
+                    fsm.current = STATE_CALCULATE_RESULTS;
+                }
+                break;
+
+            case STATE_CALCULATE_RESULTS:
+                lock_data();
+                int correct_ans = bank.items[fsm.currentQuestionIdx].correct_index;
+                
+                for (int i = 0; i < MAX_CLIENTS; i++) 
+                {
+                    if (clients[i].sockID != -1 && clients[i].hasAnswered) 
+                    {
+                        if (clients[i].lastAnswer == correct_ans) 
+                        {
+                            // Speed bonus logic! 
+                            long response_ms = (clients[i].responseTime.tv_sec * 1000 + clients[i].responseTime.tv_usec / 1000) - question_start_time_ms;
+                            int points = 10000 / (response_ms > 0 ? response_ms : 1);
+                            clients[i].score += points;
+                        }
+                    }
+                }
+                unlock_data();
+
+                // Move to the next question
+                fsm.currentQuestionIdx++;
+                fsm.current = STATE_SEND_QUESTION;
+                break;
+
+            case STATE_GAME_OVER:
+                printf("Game Over! Shutting down...\n");
+                
+                Message end_msg;
+                build_message(&end_msg, GAME_RESULT, "Game Over! Thanks for playing.");
+                for (int i = 0; i < MAX_CLIENTS; i++) {
+                    if (clients[i].sockID != -1) {
+                        send_message(clients[i].sockID, &end_msg);
+                        Close(clients[i].sockID);
+                    }
+                }
+                
+                free_bank(&bank);
+                return 0; // Exit the engine naturally
         }
     }
 
