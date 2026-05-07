@@ -27,6 +27,7 @@ typedef struct {
 } Message;
 
 void build_message(Message* msg, int type, const char* data) ;
+int deserialize(char *buffer, int n, Message *msg) ;
 int serialize(Message* msg, char* buffer) ;
 int send_message(int sockfd, Message* msg) ;
 int recv_full(int sockfd, char *buffer, int length) ;
