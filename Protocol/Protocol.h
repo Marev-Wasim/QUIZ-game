@@ -13,6 +13,7 @@
 #define RESULT 6
 #define GAME_RESULT 7
 #define ERROR_MSG 8
+#define WAITING 9
 
 #define PROTO_OK                0
 #define PROTO_ERR_DISCONNECT   -1
