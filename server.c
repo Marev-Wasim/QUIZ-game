@@ -14,10 +14,11 @@
 #include "questions.h"
 #include "StateMachine.h" // 🔴 Game Logic Lead's header
 
-/* 🔴 TODO [Protocol Designer]: 
+/* 🔴 TODO [Protocol Designer]:  DONE
  * Include your protocol header here once it is ready.
  * #include "protocol.h" 
  */
+#include "Protocol.h"
 
 int main()
 {
@@ -110,10 +111,14 @@ int main()
                     FD_SET(conn_sock, &rset); 
                     unlock_data();
 
-                    /* 🔴 TODO [Protocol Designer]: 
+                    /* 🔴 TODO [Protocol Designer]: DONE
                      * A new player just joined. Construct a "Welcome" or "Wait" packet 
                      * using your protocol structs, serialize it, and send it to 'conn_sock'.
                      */
+                     Message msg;
+
+                    build_message(&msg, WAITING, "Waiting for more players...");
+                    send_message(conn_sock, &msg);
 
                     break;
                 }
@@ -140,11 +145,21 @@ int main()
                 }
                 else if(n > 0)
                 {
-                    /* 🔴 TODO [Protocol Designer]:
+                    /* 🔴 TODO [Protocol Designer]: DONE
                      * You have received 'n' raw bytes inside 'buff'.
                      * Write a function to deserialize this raw buffer into 
                      * your Protocol Struct so the Game Logic can process it.
                      */
+                     Message msg;
+
+                    /* Convert raw received bytes into a Message struct */
+                    int status = deserialize(buff, n, &msg);
+
+                    if (status != PROTO_OK)
+                    {
+                        printf("Invalid or corrupted packet received\n");
+                        return;
+                    }
 
                     /* 🔴 TODO [Game Logic Lead]:
                      * Once the packet is parsed by the protocol designer, check if it is an ANSWER.
@@ -156,13 +171,67 @@ int main()
             }
         }
 
-        /* 🔴 TODO [Protocol Designer] & 🔴 TODO [Game Logic Lead]:
+        /* 🔴 TODO [Protocol Designer] & 🔴 TODO [Game Logic Lead]: Protocol DONE
          * This area runs outside of the FD checks. Logic is needed here to check
          * if the question timer is up. If it is:
          * 1. (Game Logic Lead): Move to the next question index.
          * 2. (Protocol Designer): Build a Question Packet, serialize it, and loop 
          * through 'clients' array to broadcast it to all active players.
          */
+
+        /* Current question number */
+        static int current_question_index = 0;
+
+        /* Check if there are still questions left */
+        if (current_question_index >= bank.size)
+        {
+            printf("No more questions available.\n");
+        }
+        else
+        {
+            Message msg;
+
+            /* Get current question */
+            Question *q =
+                &bank.items[current_question_index];
+
+            char packet_data[1024];
+
+            /* Build formatted question packet */
+            snprintf(packet_data,
+                     sizeof(packet_data),
+                     "%s\n"
+                     "A) %s\n"
+                     "B) %s\n"
+                     "C) %s\n"
+                     "D) %s",
+                     q->question_text,
+                     q->options[0],
+                     q->options[1],
+                     q->options[2],
+                     q->options[3]);
+
+            /* Build protocol message */
+            build_message(&msg, QUESTION, packet_data);
+
+            /* Broadcast question to all active clients */
+            for (int i = 0; i < MAX_CLIENTS; i++)
+            {
+                if (clients[i].sockID != -1)
+                {
+                    int status =
+                        send_message(clients[i].sockID, &msg);
+
+                    if (status < 0)
+                    {
+                        printf("Failed to send question to client %d\n", i);
+                    }
+                }
+            }
+
+            /* Move to next question */
+            current_question_index++;
+        }
     }
 
     free_bank(&bank);
