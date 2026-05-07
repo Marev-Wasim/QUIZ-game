@@ -8,6 +8,37 @@ void build_message(Message* msg, int type, const char* data) {
     msg->data[1023] = '\0';
 }
 
+int deserialize(char *buffer, int n, Message *msg) {
+
+    if (n < 2 * sizeof(int))
+        return PROTO_ERR_LENGTH;
+
+    int type, length;
+
+    memcpy(&type, buffer, sizeof(int));
+    memcpy(&length, buffer + sizeof(int), sizeof(int));
+
+    msg->type = ntohl(type);
+    msg->length = ntohl(length);
+
+    if (msg->length < 0 || msg->length > 1024)
+        return PROTO_ERR_LENGTH;
+
+    if (msg->length > n - 2*sizeof(int))
+        return PROTO_ERR_LENGTH;
+
+    if (msg->type < JOIN || msg->type > WAITING)
+        return PROTO_ERR_TYPE;
+
+    memcpy(msg->data,
+           buffer + 2*sizeof(int),
+           msg->length);
+
+    msg->data[msg->length] = '\0';
+
+    return PROTO_OK;
+}
+
 int serialize(Message* msg, char* buffer) {
 
     int type = htonl(msg->type);
