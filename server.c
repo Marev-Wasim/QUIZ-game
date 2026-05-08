@@ -4,15 +4,15 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/time.h>
-#include <stdbool.h>      
+#include <stdbool.h>
 
-#include "NET_CORE/unp.h"
-#include "NET_CORE/config.h" 
+#include "../NET_CORE/config.h"
+#include "../NET_CORE/unp.h"
 
-#include "player.h"       
+#include "player.h"
 #include "stability.h"
 #include "questions.h"
-#include "StateMachine.h" 
+#include "StateMachine.h"
 #include "Protocol.h"
 
 int main()
@@ -20,7 +20,7 @@ int main()
     // Stability Setup
     setup_stability();
 
-    // Question Bank Setup 
+    // Question Bank Setup
     QuestionBank bank;
     init_bank(&bank, 10);
     printf("Loading question bank...\n");
@@ -35,7 +35,7 @@ int main()
     Player clients[MAX_CLIENTS];
     for(int i = 0; i < MAX_CLIENTS; i++)
     {
-        clients[i].sockID = -1;              
+        clients[i].sockID = -1;      
         clients[i].score = 0;
         clients[i].hasAnswered = false;      
         clients[i].lastAnswer = -1;          
@@ -236,9 +236,8 @@ int main()
                         if (clients[i].lastAnswer == correct_ans) 
                         {
                             // Speed bonus logic! 
-                            long response_ms = (clients[i].responseTime.tv_sec * 1000 + clients[i].responseTime.tv_usec / 1000) - question_start_time_ms;
-                            int points = 10000 / (response_ms > 0 ? response_ms : 1);
-                            clients[i].score += points;
+                            double response_time_sec = (double)(clients[i].responseTime.tv_sec - fsm.Q_sent_time.tv_sec) + (double)(clients[i].responseTime.tv_usec - fsm.Q_sent_time.tv_usec) / 1000000.0;
+                            clients[i].score += calc_score(response_time_sec);
                         }
                     }
                 }
@@ -250,19 +249,56 @@ int main()
                 break;
 
             case STATE_GAME_OVER:
-                printf("Game Over! Shutting down...\n");
-                
-                Message end_msg;
-                build_message(&end_msg, GAME_RESULT, "Game Over! Thanks for playing.");
-                for (int i = 0; i < MAX_CLIENTS; i++) {
-                    if (clients[i].sockID != -1) {
-                        send_message(clients[i].sockID, &end_msg);
-                        Close(clients[i].sockID);
+                printf("Game Over!Sending final scores and restarting lobby...\n");
+
+                //Sort the leaderboard before sending final results
+                sort_leaderboard(clients, MAX_CLIENTS);
+
+                //Prepare a final summary message
+                char final_scores[1024] = "Game Over! Final Standings:\n";
+
+                for (int i = 0; i < MAX_CLIENTS; i++)
+                {
+                    if (clients[i].sockID != -1)
+                    {
+                        char line[64];
+                        snprintf(line, sizeof(line), "Player FD %d: %d pts\n", clients[i].sockID, clients[i].score);
+                        strncat(final_scores, line, sizeof(final_scores) - strlen(final_scores) - 1);
+                        //end_message(clients[i].sockID, &end_msg);
+                        //Close(clients[i].sockID);
                     }
                 }
-                
-                free_bank(&bank);
-                return 0; // Exit the engine naturally
+
+                Message end_msg;
+                build_message(&end_msg, GAME_RESULT, final_scores);
+
+                //Inform players and reset their session data
+                lock_data();
+                for (int i = 0; i < MAX_CLIENTS; i++)
+                {
+                    if (clients[i].sockID != -1)
+                    {
+                        send_message(clients[i].sockID, &end_msg);
+
+                        // Reset player stats for the next round
+                        clients[i].score = 0;
+                        clients[i].hasAnswered = false;
+                        clients[i].lastAnswer = -1;
+                        clients[i].responseTime.tv_sec = 0;
+                        clients[i].responseTime.tv_usec = 0;
+                    }
+                }
+
+                //Reset State Machine to Lobby
+                fsm.current = STATE_LOBBY;
+                fsm.currentQuestionIdx = 0;
+                fsm.answersReceived = 0;
+                //fsm.activePlayers remains the same since sockets are still open
+                unlock_data();
+
+                printf("Scores reset. Returning to Lobby state.\n");
+                break;
+            return 0; // Exit the engine naturally
         }
     }
 
