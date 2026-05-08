@@ -27,7 +27,7 @@ void add_question(QuestionBank *bank, Question q)
 
 int load_questions(const char *filename, QuestionBank *bank)
 {
-    FILE *file = fopen(filename, "r");
+    FILE *file = fopen("../Game Helpers/QuestionBank.dat", "r");
     if (!file)
     {
         perror("Could not open file");
@@ -46,6 +46,7 @@ int load_questions(const char *filename, QuestionBank *bank)
         if (token)
         {
             strncpy(q.question_text, token, sizeof(q.question_text));
+            q.question_text[sizeof(q.question_text)-1]='\0';
 
             // Load 4 options
             for (int i = 0; i < 4; i++)
@@ -71,7 +72,7 @@ void free_bank(QuestionBank *bank)
     free(bank->items);
 }
 
-int main()
+/*int main()
 { setup_stability(); 
     QuestionBank bank;
     init_bank(&bank, 10); // Start with space for 10 questions
@@ -95,4 +96,4 @@ int main()
     // Clean up before server shutdown
     free_bank(&bank);
     return 0;
-}
+}*/
