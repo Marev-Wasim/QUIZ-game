@@ -6,7 +6,7 @@
 
 #define BASE_POINTS 100
 #define MAX_BONUS 50
-#define QUESTION_TIMEOUT 10  //seconds allpwed per question
+#define QUESTION_TIMEOUT 30  //seconds allowed per question
 
 typedef struct
 {
