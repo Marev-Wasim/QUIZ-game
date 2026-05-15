@@ -1,10 +1,8 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <arpa/inet.h>
+#include <errno.h>
+#include "../NET_CORE/unp.h"
+#include "../NET_CORE/config.h"
+#include "../Protocol/Protocol.h" // عدلنا المسار عشان يقرأ من فولدر البروتوكول
 #include <sys/select.h>
-#include "Protocol.h"
 
 // ================= ألوان الـ Terminal =================
 #define COLOR_RED     "\x1b[31m"
@@ -16,13 +14,13 @@
 #define COLOR_RESET   "\x1b[0m"
 #define CLEAR_SCREEN  "\033[2J\033[H"
 
-// تعريف احتياطي للـ WAITING لو مش موجودة في الـ Protocol.h
+// تعريف احتياطي للـ WAITING
 #ifndef WAITING
 #define WAITING 9
 #endif
 
+// مش محتاجين نعرف الـ PORT هنا خلاص، هيتقرأ من config.h
 #define SERVER_IP "127.0.0.1"
-#define SERVER_PORT 8080  
 
 // (Typing Animation)
 void type_text(const char* text, const char* color) {
@@ -53,16 +51,17 @@ int main() {
     fgets(player_name, sizeof(player_name), stdin);
     player_name[strcspn(player_name, "\n")] = 0; // مسح الـ newline
 
-    // إعداد السوكيت
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) {
-        perror(COLOR_RED "Socket creation failed" COLOR_RESET);
-        exit(EXIT_FAILURE);
-    }
+    // =========================================================
+    // استخدام الـ Book Helpers (Wrappers)
+    // لاحظي إننا شلنا كل الـ (if < 0) لأن الـ Wrappers بتعمل كده لوحدها
+    // =========================================================
+
+    int sockfd = Socket(AF_INET, SOCK_STREAM, 0); // Socket بحرف كابيتال
 
     struct sockaddr_in serv_addr;
+    bzero(&serv_addr, sizeof(serv_addr)); // دالة من unp.h لتصفير الستراكت
     serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(SERVER_PORT);
+    serv_addr.sin_port = htons(PORT); // استخدمنا PORT اللي جاية من config.h
 
     if (inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr) <= 0) {
         perror(COLOR_RED "Invalid address" COLOR_RESET);
@@ -70,11 +69,11 @@ int main() {
     }
 
     printf(COLOR_BLUE "\nConnecting to the arena...\n" COLOR_RESET);
+
     if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
         perror(COLOR_RED "Connection Failed" COLOR_RESET);
         exit(EXIT_FAILURE);
     }
-
     printf(COLOR_GREEN "Connected successfully! Get ready, %s!\n" COLOR_RESET, player_name);
 
     fd_set readfds;
@@ -86,12 +85,8 @@ int main() {
         FD_SET(sockfd, &readfds);
         FD_SET(STDIN_FILENO, &readfds);
 
-        int activity = select(max_sd + 1, &readfds, NULL, NULL, NULL);
-
-        if (activity < 0) {
-            perror(COLOR_RED "Select error" COLOR_RESET);
-            break;
-        }
+        // استخدمنا Select بحرف كابيتال من الـ unp
+        Select(max_sd + 1, &readfds, NULL, NULL, NULL);
 
         // 1. لو في رسالة جاية من السيرفر
         if (FD_ISSET(sockfd, &readfds)) {
@@ -149,6 +144,6 @@ int main() {
         }
     }
 
-    close(sockfd);
+    Close(sockfd); // Close بحرف كابيتال
     return 0;
 }
