@@ -1,5 +1,6 @@
 #include "Protocol.h"
 #include <string.h>
+#include <errno.h>
 
 void build_message(Message* msg, int type, const char* data) {
     msg->type = type;
