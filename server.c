@@ -6,7 +6,7 @@
 #include <sys/time.h>
 #include <stdbool.h>
 
-#include "../NET_CORE/config.h"
+#include "../NET_CORE/config.h" 
 #include "../NET_CORE/unp.h"
 
 #include "player.h"
@@ -50,7 +50,7 @@ int main()
     fsm.currentQuestionIdx = 0;
     fsm.activePlayers = 0;
     fsm.answersReceived = 0;
-    long question_start_time_ms = 0; // Helper to track the 10-second timer
+    long question_start_time_ms = 0; // Helper to track the question timer
 
     // Network Socket Setup
     struct in_addr my_ip;
@@ -95,6 +95,7 @@ int main()
 
         int num = Select(maxfd + 1, &loop_set, NULL, NULL, &tv);
 
+        // Handle New Connections
         if(FD_ISSET(listen_sock, &loop_set)) 
         {
             int conn_sock = Accept(listen_sock, NULL, NULL);
@@ -121,7 +122,7 @@ int main()
             }
         }
 
-        
+        // Handle Incoming Data from Current Players
         for(int i = 0; i < MAX_CLIENTS; i++) 
         {
             int current_sock = clients[i].sockID;
@@ -164,10 +165,11 @@ int main()
             }
         }
 
+        // Game State Machine Logic
         switch (fsm.current)
         {
             case STATE_LOBBY:
-                // Start game if we have at least 2 players (You can change this rule)
+                // Start game if we have at least 2 players 
                 if (fsm.activePlayers >= 2) 
                 {
                     printf("Enough players joined. Starting Game!\n");
@@ -216,9 +218,9 @@ int main()
                 break;
 
             case STATE_WAIT_FOR_ANSWERS:
-                // Check if 10 seconds have passed OR everyone has answered
+                // Check if QUESTION_TIMEOUT has passed OR everyone has answered
                 long current_time = get_current_time_ms();
-                if ((current_time - question_start_time_ms >= 10000) || 
+                if ((current_time - question_start_time_ms >= QUESTION_TIMEOUT) || 
                     (fsm.answersReceived >= fsm.activePlayers && fsm.activePlayers > 0))
                 {
                     fsm.current = STATE_CALCULATE_RESULTS;
@@ -235,7 +237,7 @@ int main()
                     {
                         if (clients[i].lastAnswer == correct_ans) 
                         {
-                            // Speed bonus logic! 
+                            // Speed bonus logic
                             double response_time_sec = (double)(clients[i].responseTime.tv_sec - fsm.Q_sent_time.tv_sec) + (double)(clients[i].responseTime.tv_usec - fsm.Q_sent_time.tv_usec) / 1000000.0;
                             clients[i].score += calc_score(response_time_sec);
                         }
@@ -249,12 +251,12 @@ int main()
                 break;
 
             case STATE_GAME_OVER:
-                printf("Game Over!Sending final scores and restarting lobby...\n");
+                printf("Game Over! Sending final scores and restarting lobby...\n");
 
-                //Sort the leaderboard before sending final results
+                // Sort the leaderboard before sending final results
                 sort_leaderboard(clients, MAX_CLIENTS);
 
-                //Prepare a final summary message
+                // Prepare a final summary message
                 char final_scores[1024] = "Game Over! Final Standings:\n";
 
                 for (int i = 0; i < MAX_CLIENTS; i++)
@@ -264,15 +266,13 @@ int main()
                         char line[64];
                         snprintf(line, sizeof(line), "Player FD %d: %d pts\n", clients[i].sockID, clients[i].score);
                         strncat(final_scores, line, sizeof(final_scores) - strlen(final_scores) - 1);
-                        //end_message(clients[i].sockID, &end_msg);
-                        //Close(clients[i].sockID);
                     }
                 }
 
                 Message end_msg;
                 build_message(&end_msg, GAME_RESULT, final_scores);
 
-                //Inform players and reset their session data
+                // Inform players and reset their session data
                 lock_data();
                 for (int i = 0; i < MAX_CLIENTS; i++)
                 {
@@ -289,16 +289,14 @@ int main()
                     }
                 }
 
-                //Reset State Machine to Lobby
+                // Reset State Machine to Lobby
                 fsm.current = STATE_LOBBY;
                 fsm.currentQuestionIdx = 0;
                 fsm.answersReceived = 0;
-                //fsm.activePlayers remains the same since sockets are still open
                 unlock_data();
 
                 printf("Scores reset. Returning to Lobby state.\n");
                 break;
-            return 0; // Exit the engine naturally
         }
     }
 
