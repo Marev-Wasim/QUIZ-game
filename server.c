@@ -220,7 +220,7 @@ int main()
             case STATE_WAIT_FOR_ANSWERS:
                 // Check if QUESTION_TIMEOUT has passed OR everyone has answered
                 long current_time = get_current_time_ms();
-                if ((current_time - question_start_time_ms >= QUESTION_TIMEOUT) || 
+                if ((current_time - question_start_time_ms >= QUESTION_TIMEOUT * 1000) || 
                     (fsm.answersReceived >= fsm.activePlayers && fsm.activePlayers > 0))
                 {
                     fsm.current = STATE_CALCULATE_RESULTS;
