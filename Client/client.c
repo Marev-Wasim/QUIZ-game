@@ -76,6 +76,10 @@ int main() {
     }
     printf(COLOR_GREEN "Connected successfully! Get ready, %s!\n" COLOR_RESET, player_name);
 
+    // السطر ده بينضف أي زوايد في الكيبورد (زي زرار الـ Enter) عشان ميعلقش اللوب
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+
     fd_set readfds;
     int max_sd = (sockfd > STDIN_FILENO) ? sockfd : STDIN_FILENO;
 
@@ -93,8 +97,9 @@ int main() {
             Message msg;
             int status = receive_message(sockfd, &msg);
 
+            // هنا خلينا الكلاينت يطبع رقم الإيرور عشان لو فصل نعرف المشكلة فين
             if (status == PROTO_ERR_DISCONNECT || status < 0) {
-                printf(COLOR_RED "\n[!] Connection closed by server. Game Over.\n" COLOR_RESET);
+                printf(COLOR_RED "\n[!] Connection Error! Status Code: %d\n" COLOR_RESET, status);
                 break;
             }
 
