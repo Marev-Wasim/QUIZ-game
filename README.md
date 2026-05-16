@@ -3,6 +3,8 @@ Quiz game over sockets!
 
 ## Game Structure
 QUIZ-game/  
+├── Client/   
+│   ├── main.c   
 ├── Game Helpers/   
 │   ├── parser.c  
 │   ├── player.h  
