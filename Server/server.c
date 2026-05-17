@@ -252,7 +252,7 @@ int main()
                     }
 
                     fsm.currentQuestionIdx++;
-                    change_state(&fsm, STATE_SEND_QUESTION); // ✅
+                    change_state(&fsm, STATE_SEND_QUESTION); 
                 }
                 break;
 
@@ -317,13 +317,13 @@ int main()
 
                     printf("Displaying scores for 15 seconds...\n");
                     score_display_start_ms = get_current_time_ms();
-                    change_state(&fsm, STATE_SCORE_DISPLAY); // ✅
+                    change_state(&fsm, STATE_SCORE_DISPLAY); 
                 }
                 break;
 
             case STATE_SCORE_DISPLAY:
                 if (get_current_time_ms() - score_display_start_ms >= 15000) {
-                    change_state(&fsm, STATE_ASK_REPLAY); // ✅
+                    change_state(&fsm, STATE_ASK_REPLAY); 
                 }
                 break;
 
@@ -348,7 +348,7 @@ int main()
                 }
 
                 replay_question_start_ms = get_current_time_ms();
-                change_state(&fsm, STATE_WAIT_REPLAY); // ✅
+                change_state(&fsm, STATE_WAIT_REPLAY); 
                 break;
 
             case STATE_WAIT_REPLAY:
@@ -392,7 +392,7 @@ int main()
                         
                         in_lobby_delay = true;
                         lobby_delay_start_ms = get_current_time_ms();
-                        change_state(&fsm, STATE_LOBBY); // ✅
+                        change_state(&fsm, STATE_LOBBY); 
                     }
                 }
                 break;
