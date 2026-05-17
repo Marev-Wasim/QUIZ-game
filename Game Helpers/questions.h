@@ -1,3 +1,6 @@
+#ifndef QUESTIONS_H
+#define QUESTIONS_H
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,3 +20,5 @@ typedef struct
     size_t size;
     size_t capacity;
 } QuestionBank;
+
+#endif
