@@ -385,6 +385,17 @@ int main()
                             }
                         }
                     }
+
+                    // UX Feature: Notify remaining player if they are alone
+                    if (fsm.activePlayers == 1) {
+                        Message wait_msg;
+                        build_message(&wait_msg, WAITING, "Your friend left! Waiting for a new challenger to join...");
+                        for (int i = 0; i < MAX_CLIENTS; i++) {
+                            if (clients[i].sockID != -1) {
+                                send_message(clients[i].sockID, &wait_msg);
+                            }
+                        }
+                    }
                     unlock_data();
 
                     printf("Remaining players: %d. Returning to Lobby.\n", fsm.activePlayers);
