@@ -92,7 +92,7 @@ int main()
 
         struct timeval tv;
         tv.tv_sec = 0;
-        tv.tv_usec = 100000; // 100ms timeout
+        tv.tv_usec = 100000; // 100ms heartbeat
 
         int num = Select(maxfd + 1, &loop_set, NULL, NULL, &tv);
 
@@ -116,7 +116,7 @@ int main()
                     unlock_data();
 
                     Message msg;
-                    build_message(&msg, WAITING, "Welcome! Waiting for the game to start...");
+                    build_message(&msg, WAITING, "Welcome! Waiting for more players to join...");
                     send_message(conn_sock, &msg);
                     break;
                 }
@@ -130,11 +130,14 @@ int main()
 
             if(current_sock != -1 && FD_ISSET(current_sock, &loop_set))
             {
-                int n = Recv(current_sock, buff, MAX_BUFFER, 0);
+                // Use standard recv to prevent crash on sudden disconnect
+                int n = recv(current_sock, buff, MAX_BUFFER, 0);
 
-                if(n == 0) // Client Disconnected
+                if(n <= 0) // Disconnect or Error
                 {
-                    printf("Player %d disconnected\n", current_sock);
+                    if (n == 0) printf("Player %d disconnected gracefully.\n", current_sock);
+                    else printf("Player %d dropped (Error).\n", current_sock);
+
                     lock_data();
                     clients[i].sockID = -1;
                     fsm.activePlayers--;
@@ -142,7 +145,7 @@ int main()
                     Close(current_sock);
                     unlock_data();
                 }
-                else if(n > 0)
+                else if(n > 0) // Received Data
                 {
                     Message msg;
                     int status = deserialize(buff, n, &msg);
@@ -158,7 +161,7 @@ int main()
                             fsm.answersReceived++;
                             unlock_data();
 
-                            printf("Received answer from FD %d\n", current_sock);
+                            printf("Received answer '%d' from FD %d\n", clients[i].lastAnswer, current_sock);
                         }
                     }
                 }
@@ -169,6 +172,7 @@ int main()
         switch (fsm.current)
         {
             case STATE_LOBBY:
+                // Start if at least 2 players
                 if (fsm.activePlayers >= 2)
                 {
                     printf("Enough players joined. Starting Game!\n");
@@ -177,6 +181,7 @@ int main()
                 break;
 
             case STATE_SEND_QUESTION:
+                // Check if out of questions
                 if (fsm.currentQuestionIdx >= bank.size)
                 {
                     fsm.current = STATE_GAME_OVER;
@@ -194,12 +199,14 @@ int main()
                     }
                 }
 
+                // Format Question
                 snprintf(packet_data, sizeof(packet_data), "%s\n1) %s\n2) %s\n3) %s\n4) %s",
                          q->question_text, q->options[0], q->options[1], q->options[2], q->options[3]);
 
                 Message q_msg;
                 build_message(&q_msg, QUESTION, packet_data);
 
+                // Broadcast
                 for (int i = 0; i < MAX_CLIENTS; i++) {
                     if (clients[i].sockID != -1) {
                         send_message(clients[i].sockID, &q_msg);
@@ -214,6 +221,7 @@ int main()
                 break;
 
             case STATE_WAIT_FOR_ANSWERS:
+                // Check timeout OR all answered
                 long current_time = get_current_time_ms();
                 if ((current_time - question_start_time_ms >= QUESTION_TIMEOUT * 1000) ||
                     (fsm.answersReceived >= fsm.activePlayers && fsm.activePlayers > 0))
@@ -246,7 +254,6 @@ int main()
             case STATE_GAME_OVER:
                 printf("Game Over! Calculating final rankings...\n");
 
-                // Temporary struct for local leaderboard sorting
                 typedef struct {
                     int sockID;
                     int score;
@@ -256,7 +263,6 @@ int main()
                 PlayerRank rankList[MAX_CLIENTS];
                 int active_count = 0;
 
-                // Collect active players info
                 for (int i = 0; i < MAX_CLIENTS; i++) {
                     if (clients[i].sockID != -1) {
                         rankList[active_count].sockID = clients[i].sockID;
@@ -266,7 +272,7 @@ int main()
                     }
                 }
 
-                // Bubble Sort descending by score
+                // Bubble Sort descending
                 for (int i = 0; i < active_count - 1; i++) {
                     for (int j = 0; j < active_count - i - 1; j++) {
                         if (rankList[j].score < rankList[j+1].score) {
@@ -277,42 +283,38 @@ int main()
                     }
                 }
 
-                // Build Top 3 Leaderboard string
+                // Build Leaderboard
                 char leaderboard[512] = "";
-                snprintf(leaderboard, sizeof(leaderboard), "\n--- 🏆 TOP 3 PLAYERS --- \n");
+                snprintf(leaderboard, sizeof(leaderboard), "\n--- [ TOP 3 PLAYERS ] ---\n");
                 for (int i = 0; i < 3 && i < active_count; i++) {
                     char row[128];
                     snprintf(row, sizeof(row), "Place %d: Player (FD %d) - Score: %d\n", i + 1, rankList[i].sockID, rankList[i].score);
                     strcat(leaderboard, row);
                 }
 
-                // Send customized messages and reset scores
                 lock_data();
                 for (int i = 0; i < active_count; i++) {
                     char final_payload[1024];
                     int current_place = i + 1;
 
                     if (current_place == 1) {
-                        // Winner custom message
                         snprintf(final_payload, sizeof(final_payload),
-                                 "🏆 👑 YOU ARE THE WINNER!!! 👑 🏆\n"
+                                 "*** YOU ARE THE WINNER!!! ***\n"
                                  "Your Final Score: %d\n"
                                  "Your Rank: %d\n"
-                                 "%s\nWaiting for the next game...", rankList[i].score, current_place, leaderboard);
+                                 "%s", rankList[i].score, current_place, leaderboard);
                     } else {
-                        // Regular custom message with individual rank
                         snprintf(final_payload, sizeof(final_payload),
-                                 "Game Over!\n"
                                  "Your Final Score: %d\n"
                                  "Your Rank: %d\n"
-                                 "%s\nWaiting for the next game...", rankList[i].score, current_place, leaderboard);
+                                 "%s", rankList[i].score, current_place, leaderboard);
                     }
 
                     Message end_msg;
                     build_message(&end_msg, GAME_RESULT, final_payload);
                     send_message(rankList[i].sockID, &end_msg);
 
-                    // Reset session data for the next round
+                    // Reset session
                     int idx = rankList[i].origIdx;
                     clients[idx].score = 0;
                     clients[idx].hasAnswered = false;
@@ -321,13 +323,13 @@ int main()
                     clients[idx].responseTime.tv_usec = 0;
                 }
 
-                // Reset State Machine back to Lobby
                 fsm.current = STATE_LOBBY;
                 fsm.currentQuestionIdx = 0;
                 fsm.answersReceived = 0;
                 unlock_data();
 
-                printf("Scores reset. Returning to Lobby state.\n");
+                printf("Scores reset. Returning to Lobby state in 4 seconds...\n");
+                sleep(4); 
                 break;
         }
     }
