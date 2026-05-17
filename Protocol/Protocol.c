@@ -96,7 +96,8 @@ int receive_message(int sockfd, Message* msg) {
     // validation
     if (msg->length > 1024 || msg->length < 0)
         return PROTO_ERR_LENGTH;   //corrupted message
-    if (msg->type < JOIN || msg->type > ERROR_MSG)
+    //if (msg->type < JOIN || msg->type > ERROR_MSG) the old line
+    if (msg->type < JOIN || msg->type > WAITING) //Edited by shahd
         return PROTO_ERR_TYPE;
 
     // read data
