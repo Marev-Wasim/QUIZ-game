@@ -52,6 +52,10 @@ int main()
     fsm.activePlayers = 0;
     fsm.answersReceived = 0;
     long question_start_time_ms = 0;
+    
+    // New timers for the Replay feature
+    long score_display_start_ms = 0;
+    long replay_question_start_ms = 0;
 
     // Network Socket Setup
     struct in_addr my_ip;
@@ -130,7 +134,7 @@ int main()
 
             if(current_sock != -1 && FD_ISSET(current_sock, &loop_set))
             {
-                // Use standard recv to prevent crash on sudden disconnect
+                // Use standard recv to prevent crash
                 int n = recv(current_sock, buff, MAX_BUFFER, 0);
 
                 if(n <= 0) // Disconnect or Error
@@ -152,7 +156,8 @@ int main()
 
                     if (status == PROTO_OK && msg.type == ANSWER)
                     {
-                        if (fsm.current == STATE_WAIT_FOR_ANSWERS && !clients[i].hasAnswered)
+                        // Check if we are waiting for normal questions OR replay question
+                        if ((fsm.current == STATE_WAIT_FOR_ANSWERS || fsm.current == STATE_WAIT_REPLAY) && !clients[i].hasAnswered)
                         {
                             lock_data();
                             clients[i].hasAnswered = true;
@@ -181,7 +186,6 @@ int main()
                 break;
 
             case STATE_SEND_QUESTION:
-                // Check if out of questions
                 if (fsm.currentQuestionIdx >= bank.size)
                 {
                     fsm.current = STATE_GAME_OVER;
@@ -221,7 +225,6 @@ int main()
                 break;
 
             case STATE_WAIT_FOR_ANSWERS:
-                // Check timeout OR all answered
                 long current_time = get_current_time_ms();
                 if ((current_time - question_start_time_ms >= QUESTION_TIMEOUT * 1000) ||
                     (fsm.answersReceived >= fsm.activePlayers && fsm.activePlayers > 0))
@@ -313,23 +316,82 @@ int main()
                     Message end_msg;
                     build_message(&end_msg, GAME_RESULT, final_payload);
                     send_message(rankList[i].sockID, &end_msg);
-
-                    // Reset session
-                    int idx = rankList[i].origIdx;
-                    clients[idx].score = 0;
-                    clients[idx].hasAnswered = false;
-                    clients[idx].lastAnswer = -1;
-                    clients[idx].responseTime.tv_sec = 0;
-                    clients[idx].responseTime.tv_usec = 0;
                 }
-
-                fsm.current = STATE_LOBBY;
-                fsm.currentQuestionIdx = 0;
-                fsm.answersReceived = 0;
                 unlock_data();
 
-                printf("Scores reset. Returning to Lobby state in 4 seconds...\n");
-                sleep(4); 
+                // Non-blocking timer setup
+                printf("Displaying scores for 15 seconds...\n");
+                score_display_start_ms = get_current_time_ms();
+                fsm.current = STATE_SCORE_DISPLAY;
+                break;
+
+            case STATE_SCORE_DISPLAY:
+                // Wait 15 seconds without blocking the server
+                if (get_current_time_ms() - score_display_start_ms >= 15000)
+                {
+                    fsm.current = STATE_ASK_REPLAY;
+                }
+                break;
+
+            case STATE_ASK_REPLAY:
+                printf("Asking players if they want to replay...\n");
+                
+                fsm.answersReceived = 0;
+                for (int i = 0; i < MAX_CLIENTS; i++) {
+                    if (clients[i].sockID != -1) {
+                        clients[i].hasAnswered = false;
+                        clients[i].lastAnswer = -1;
+                    }
+                }
+
+                // Send a fake QUESTION to trigger the client's answer logic
+                Message replay_msg;
+                char replay_text[] = "Do you want to play another round?\n1) Yes, let's go!\n2) No, I want to quit\n3) -\n4) -";
+                build_message(&replay_msg, QUESTION, replay_text);
+
+                for (int i = 0; i < MAX_CLIENTS; i++) {
+                    if (clients[i].sockID != -1) {
+                        send_message(clients[i].sockID, &replay_msg);
+                    }
+                }
+
+                replay_question_start_ms = get_current_time_ms();
+                fsm.current = STATE_WAIT_REPLAY;
+                break;
+
+            case STATE_WAIT_REPLAY:
+                long replay_curr_time = get_current_time_ms();
+                // Check if timeout (10 seconds) OR everyone answered
+                if ((replay_curr_time - replay_question_start_ms >= 10000) ||
+                    (fsm.answersReceived >= fsm.activePlayers && fsm.activePlayers > 0))
+                {
+                    lock_data();
+                    for (int i = 0; i < MAX_CLIENTS; i++) {
+                        if (clients[i].sockID != -1) {
+                            // If they chose anything other than 1, kick them out
+                            if (clients[i].lastAnswer != 1) {
+                                printf("Player %d chose not to replay. Disconnecting...\n", clients[i].sockID);
+                                FD_CLR(clients[i].sockID, &rset);
+                                Close(clients[i].sockID);
+                                clients[i].sockID = -1;
+                                fsm.activePlayers--;
+                            } else {
+                                // Reset stats for those who stay
+                                clients[i].score = 0;
+                                clients[i].hasAnswered = false;
+                                clients[i].lastAnswer = -1;
+                                clients[i].responseTime.tv_sec = 0;
+                                clients[i].responseTime.tv_usec = 0;
+                            }
+                        }
+                    }
+                    unlock_data();
+
+                    printf("Remaining players: %d. Returning to Lobby.\n", fsm.activePlayers);
+                    fsm.current = STATE_LOBBY;
+                    fsm.currentQuestionIdx = 0;
+                    fsm.answersReceived = 0;
+                }
                 break;
         }
     }
