@@ -33,6 +33,8 @@ void err_sys(const char *, ...);
 /* Network wrapper functions (wrapsock.c) */
 int Accept(int, SA *, socklen_t *);
 void Bind(int, const SA *, socklen_t);
+void Connect(int, const SA *, socklen_t);         
+void Inet_pton(int, const char *, void *);        
 void Listen(int, int);
 int Select(int, fd_set *, fd_set *, fd_set *, struct timeval *);
 int Socket(int, int, int);
