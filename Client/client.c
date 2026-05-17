@@ -14,11 +14,6 @@
 #define COLOR_RESET   "\x1b[0m"
 #define CLEAR_SCREEN  "\033[2J\033[H"
 
-// تعريف احتياطي للـ WAITING
-#ifndef WAITING
-#define WAITING 9
-#endif
-
 // مش محتاجين نعرف الـ PORT هنا خلاص، هيتقرأ من config.h
 #define SERVER_IP "127.0.0.1"
 
@@ -28,7 +23,7 @@ void type_text(const char* text, const char* color) {
     for (int i = 0; text[i] != '\0'; i++) {
         putchar(text[i]);
         fflush(stdout);
-        usleep(15000);
+        usleep(10000);
     }
     printf("%s\n", COLOR_RESET);
 }
