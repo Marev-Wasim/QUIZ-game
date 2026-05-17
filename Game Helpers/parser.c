@@ -71,29 +71,3 @@ void free_bank(QuestionBank *bank)
 {
     free(bank->items);
 }
-
-/*int main()
-{ setup_stability(); 
-    QuestionBank bank;
-    init_bank(&bank, 10); // Start with space for 10 questions
-
-    printf("Loading question bank.\n");
-
-    if (load_questions("QuestionBank.dat", &bank) == 0)
-    {
-        printf("Successfully loaded %zu questions.\n", bank.size);
-    }
-    else
-    {
-        printf("Failed to load questions.\n");
-        return EXIT_FAILURE;
-    }
- lock_data(); 
- long answer_time = get_current_time_ms();
-  printf("Processing answer at: %ld ms\n", answer_time);
-    printf(bank.items[0].question_text);
-  unlock_data();
-    // Clean up before server shutdown
-    free_bank(&bank);
-    return 0;
-}*/
