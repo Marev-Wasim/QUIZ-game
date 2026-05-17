@@ -12,7 +12,7 @@ typedef struct
 {
     int sockID;
     int score;
-    struct timeval responseTime;
+    long long responseTime; //msec
     int lastAnswer;
     bool hasAnswered;
 } Player;
