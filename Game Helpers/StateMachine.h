@@ -1,3 +1,6 @@
+#ifndef STATE_MACHINE_H
+#define STATE_MACHINE_H
+
 #include <sys/time.h>
 
 typedef enum
@@ -10,8 +13,6 @@ typedef enum
     STATE_SCORE_DISPLAY,  //----Added by Shahd----
     STATE_ASK_REPLAY,     //----Added by Shahd----
     STATE_WAIT_REPLAY     //----Added by Shahd---- 
-
-
 } MainState;
 
 typedef enum { LISTEN, PROCESSING, BROADCAST } SubState;
@@ -26,7 +27,10 @@ typedef struct
     int answersReceived;   /* Counter to trigger transition from WAIT_FOR_ANSWERS */
     
     struct timeval Q_sent_time; /* Used with gettimeofday() for speed bonuses */
+    time_t stateStartTime;
 } StateMachine;
 
 void initialize(StateMachine *m);
 void update(StateMachine *m);
+
+#endif
