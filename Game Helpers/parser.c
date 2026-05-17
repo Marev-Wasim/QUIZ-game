@@ -27,7 +27,7 @@ void add_question(QuestionBank *bank, Question q)
 
 int load_questions(const char *filename, QuestionBank *bank)
 {
-    FILE *file = fopen("../Game Helpers/QuestionBank.dat", "r");
+    FILE *file = fopen(filename, "r");
     if (!file)
     {
         perror("Could not open file");
