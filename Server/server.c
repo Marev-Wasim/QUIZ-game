@@ -18,8 +18,11 @@
 
 int main()
 {
-    // Stability Setup
+    // Stability & Security Setup
     setup_stability();
+    
+    ServerStats stats;
+    init_server_stats(&stats);
 
     // Question Bank Setup
     QuestionBank bank;
@@ -32,32 +35,24 @@ int main()
     }
     printf("Successfully loaded %zu questions.\n", bank.size);
 
-    // Server & Player Setup
-    Player clients[MAX_CLIENTS];
+    // Server & StablePlayer Setup
+    StablePlayer clients[MAX_CLIENTS];
     for(int i = 0; i < MAX_CLIENTS; i++)
     {
         clients[i].sockID = -1;
-        clients[i].score = 0;
-        clients[i].hasAnswered = false;
-        clients[i].lastAnswer = -1;
-        clients[i].responseTime.tv_sec = 0;
-        clients[i].responseTime.tv_usec = 0;
+        reset_player(&clients[i]);
     }
 
-    // State Machine Initialization
+    // State Machine Initialization (Using new structures)
     StateMachine fsm;
-    fsm.current = STATE_LOBBY;
+    memset(&fsm, 0, sizeof(StateMachine));
+    change_state(&fsm, STATE_LOBBY); // Safe transition
     fsm.status = LISTEN;
-    fsm.currentQuestionIdx = 0;
-    fsm.activePlayers = 0;
-    fsm.answersReceived = 0;
-    long question_start_time_ms = 0;
     
-    // New timers for the Replay feature
-    long score_display_start_ms = 0;
     long replay_question_start_ms = 0;
+    long score_display_start_ms = 0;
 
-    // Network Socket Setup
+    //Network Socket Setup
     struct in_addr my_ip;
     struct sockaddr_in my_sock_addr;
     int listen_sock;
@@ -82,16 +77,30 @@ int main()
     FD_ZERO(&rset);
     FD_SET(listen_sock, &rset);
 
-    printf("Engine running. Waiting for players on port %d...\n", PORT);
+    printf("Engine running with STABILITY features. Waiting for players on port %d...\n", PORT);
+
 
     for(;;)
     {
+        // System Health Checks
+        clean_zombie_processes(); 
+        watchdog_check(&fsm);
+
         fd_set loop_set = rset;
         int maxfd = listen_sock;
 
+        // Disconnect inactive players (Timeout Check)
         for(int i = 0; i < MAX_CLIENTS; i++)
         {
-            if(clients[i].sockID > maxfd) maxfd = clients[i].sockID;
+            if(clients[i].sockID != -1) {
+                if (check_client_timeout(&clients[i])) {
+                    printf("Player %d timed out due to inactivity.\n", clients[i].sockID);
+                    disconnect_player(&clients[i], &rset, &fsm);
+                    stats.totalTimeouts++;
+                } else {
+                    if (clients[i].sockID > maxfd) maxfd = clients[i].sockID;
+                }
+            }
         }
 
         struct timeval tv;
@@ -111,11 +120,10 @@ int main()
                 if(clients[i].sockID == -1)
                 {
                     lock_data();
+                    reset_player(&clients[i]);
                     clients[i].sockID = conn_sock;
-                    clients[i].score = 0;
-                    clients[i].hasAnswered = false;
-                    clients[i].lastAnswer = -1;
-                    fsm.activePlayers++;
+                    safe_add_player(&fsm); // Using stability safe increment
+                    stats.totalConnections++;
                     FD_SET(conn_sock, &rset);
                     unlock_data();
 
@@ -127,14 +135,13 @@ int main()
             }
         }
 
-        // Handle Incoming Data from Current Players
+        // Handle Incoming Data
         for(int i = 0; i < MAX_CLIENTS; i++)
         {
             int current_sock = clients[i].sockID;
 
             if(current_sock != -1 && FD_ISSET(current_sock, &loop_set))
             {
-                // Use standard recv to prevent crash
                 int n = recv(current_sock, buff, MAX_BUFFER, 0);
 
                 if(n <= 0) // Disconnect or Error
@@ -143,20 +150,30 @@ int main()
                     else printf("Player %d dropped (Error).\n", current_sock);
 
                     lock_data();
-                    clients[i].sockID = -1;
-                    fsm.activePlayers--;
-                    FD_CLR(current_sock, &rset);
-                    Close(current_sock);
+                    disconnect_player(&clients[i], &rset, &fsm); // Safe disconnect
+                    stats.totalDisconnects++;
                     unlock_data();
                 }
                 else if(n > 0) // Received Data
                 {
+                    // 1. Update activity for timeout protection
+                    clients[i].last_seen_time = time(NULL);
+
+                    // 2. Flood Control Check
+                    if (!check_flood_control(current_sock, &clients[i].msg_count, &clients[i].last_msg_time_ms)) {
+                        printf("Disconnecting FD %d due to flood attack.\n", current_sock);
+                        lock_data();
+                        disconnect_player(&clients[i], &rset, &fsm);
+                        stats.totalFloodViolations++;
+                        unlock_data();
+                        continue; 
+                    }
+
                     Message msg;
                     int status = deserialize(buff, n, &msg);
 
                     if (status == PROTO_OK && msg.type == ANSWER)
                     {
-                        // Check if we are waiting for normal questions OR replay question
                         if ((fsm.current == STATE_WAIT_FOR_ANSWERS || fsm.current == STATE_WAIT_REPLAY) && !clients[i].hasAnswered)
                         {
                             lock_data();
@@ -164,6 +181,7 @@ int main()
                             clients[i].lastAnswer = atoi(msg.data);
                             gettimeofday(&clients[i].responseTime, NULL);
                             fsm.answersReceived++;
+                            stats.totalAnswersReceived++;
                             unlock_data();
 
                             printf("Received answer '%d' from FD %d\n", clients[i].lastAnswer, current_sock);
@@ -173,22 +191,21 @@ int main()
             }
         }
 
-        // Game State Machine Logic
+        // C. Game State Machine Logic
         switch (fsm.current)
         {
             case STATE_LOBBY:
-                // Start if at least 2 players
                 if (fsm.activePlayers >= 2)
                 {
                     printf("Enough players joined. Starting Game!\n");
-                    fsm.current = STATE_SEND_QUESTION;
+                    change_state(&fsm, STATE_SEND_QUESTION);
                 }
                 break;
 
             case STATE_SEND_QUESTION:
                 if (fsm.currentQuestionIdx >= bank.size)
                 {
-                    fsm.current = STATE_GAME_OVER;
+                    change_state(&fsm, STATE_GAME_OVER);
                     break;
                 }
 
@@ -203,33 +220,25 @@ int main()
                     }
                 }
 
-                // Format Question
                 snprintf(packet_data, sizeof(packet_data), "%s\n1) %s\n2) %s\n3) %s\n4) %s",
                          q->question_text, q->options[0], q->options[1], q->options[2], q->options[3]);
 
                 Message q_msg;
                 build_message(&q_msg, QUESTION, packet_data);
-
-                // Broadcast
-                for (int i = 0; i < MAX_CLIENTS; i++) {
-                    if (clients[i].sockID != -1) {
-                        send_message(clients[i].sockID, &q_msg);
-                    }
-                }
+                broadcast_message(clients, MAX_CLIENTS, &q_msg, (int (*)(int, void *))send_message); // Safe broadcast
 
                 printf("Sent Question %d to all players.\n", fsm.currentQuestionIdx + 1);
-
-                question_start_time_ms = get_current_time_ms();
+                stats.totalQuestionsSent++;
+                
                 gettimeofday(&fsm.Q_sent_time, NULL);
-                fsm.current = STATE_WAIT_FOR_ANSWERS;
+                change_state(&fsm, STATE_WAIT_FOR_ANSWERS);
                 break;
 
             case STATE_WAIT_FOR_ANSWERS:
-                long current_time = get_current_time_ms();
-                if ((current_time - question_start_time_ms >= QUESTION_TIMEOUT * 1000) ||
-                    (fsm.answersReceived >= fsm.activePlayers && fsm.activePlayers > 0))
+                // Check using the new stability round status checker
+                if (check_game_round_status(&fsm, ((long long)fsm.Q_sent_time.tv_sec * 1000LL) + (fsm.Q_sent_time.tv_usec / 1000LL), QUESTION_TIMEOUT))
                 {
-                    fsm.current = STATE_CALCULATE_RESULTS;
+                    change_state(&fsm, STATE_CALCULATE_RESULTS);
                 }
                 break;
 
@@ -251,11 +260,12 @@ int main()
                 unlock_data();
 
                 fsm.currentQuestionIdx++;
-                fsm.current = STATE_SEND_QUESTION;
+                change_state(&fsm, STATE_SEND_QUESTION);
                 break;
 
             case STATE_GAME_OVER:
                 printf("Game Over! Calculating final rankings...\n");
+                stats.totalGamesPlayed++;
 
                 typedef struct {
                     int sockID;
@@ -275,7 +285,6 @@ int main()
                     }
                 }
 
-                // Bubble Sort descending
                 for (int i = 0; i < active_count - 1; i++) {
                     for (int j = 0; j < active_count - i - 1; j++) {
                         if (rankList[j].score < rankList[j+1].score) {
@@ -286,7 +295,6 @@ int main()
                     }
                 }
 
-                // Build Leaderboard
                 char leaderboard[512] = "";
                 snprintf(leaderboard, sizeof(leaderboard), "\n--- [ TOP 3 PLAYERS ] ---\n");
                 for (int i = 0; i < 3 && i < active_count; i++) {
@@ -302,15 +310,12 @@ int main()
 
                     if (current_place == 1) {
                         snprintf(final_payload, sizeof(final_payload),
-                                 "*** YOU ARE THE WINNER!!! ***\n"
-                                 "Your Final Score: %d\n"
-                                 "Your Rank: %d\n"
-                                 "%s", rankList[i].score, current_place, leaderboard);
+                                 "*** YOU ARE THE WINNER!!! ***\nYour Final Score: %d\nYour Rank: %d\n%s", 
+                                 rankList[i].score, current_place, leaderboard);
                     } else {
                         snprintf(final_payload, sizeof(final_payload),
-                                 "Your Final Score: %d\n"
-                                 "Your Rank: %d\n"
-                                 "%s", rankList[i].score, current_place, leaderboard);
+                                 "Your Final Score: %d\nYour Rank: %d\n%s", 
+                                 rankList[i].score, current_place, leaderboard);
                     }
 
                     Message end_msg;
@@ -319,23 +324,20 @@ int main()
                 }
                 unlock_data();
 
-                // Non-blocking timer setup
                 printf("Displaying scores for 15 seconds...\n");
                 score_display_start_ms = get_current_time_ms();
-                fsm.current = STATE_SCORE_DISPLAY;
+                change_state(&fsm, STATE_SCORE_DISPLAY);
                 break;
 
             case STATE_SCORE_DISPLAY:
-                // Wait 15 seconds without blocking the server
                 if (get_current_time_ms() - score_display_start_ms >= 15000)
                 {
-                    fsm.current = STATE_ASK_REPLAY;
+                    change_state(&fsm, STATE_ASK_REPLAY);
                 }
                 break;
 
             case STATE_ASK_REPLAY:
                 printf("Asking players if they want to replay...\n");
-                
                 fsm.answersReceived = 0;
                 for (int i = 0; i < MAX_CLIENTS; i++) {
                     if (clients[i].sockID != -1) {
@@ -344,64 +346,44 @@ int main()
                     }
                 }
 
-                // Send a fake QUESTION to trigger the client's answer logic
                 Message replay_msg;
                 char replay_text[] = "Do you want to play another round?\n1) Yes, let's go!\n2) No, I want to quit\n3) -\n4) -";
                 build_message(&replay_msg, QUESTION, replay_text);
-
-                for (int i = 0; i < MAX_CLIENTS; i++) {
-                    if (clients[i].sockID != -1) {
-                        send_message(clients[i].sockID, &replay_msg);
-                    }
-                }
+                broadcast_message(clients, MAX_CLIENTS, &replay_msg, (int (*)(int, void *))send_message);
 
                 replay_question_start_ms = get_current_time_ms();
-                fsm.current = STATE_WAIT_REPLAY;
+                change_state(&fsm, STATE_WAIT_REPLAY);
                 break;
 
             case STATE_WAIT_REPLAY:
                 long replay_curr_time = get_current_time_ms();
-                // Check if timeout (10 seconds) OR everyone answered
                 if ((replay_curr_time - replay_question_start_ms >= 10000) ||
                     (fsm.answersReceived >= fsm.activePlayers && fsm.activePlayers > 0))
                 {
                     lock_data();
                     for (int i = 0; i < MAX_CLIENTS; i++) {
                         if (clients[i].sockID != -1) {
-                            // If they chose anything other than 1, kick them out
                             if (clients[i].lastAnswer != 1) {
                                 printf("Player %d chose not to replay. Disconnecting...\n", clients[i].sockID);
-                                FD_CLR(clients[i].sockID, &rset);
-                                Close(clients[i].sockID);
-                                clients[i].sockID = -1;
-                                fsm.activePlayers--;
+                                disconnect_player(&clients[i], &rset, &fsm);
                             } else {
-                                // Reset stats for those who stay
-                                clients[i].score = 0;
-                                clients[i].hasAnswered = false;
-                                clients[i].lastAnswer = -1;
-                                clients[i].responseTime.tv_sec = 0;
-                                clients[i].responseTime.tv_usec = 0;
+                                reset_player(&clients[i]); // Clean reset for next round
+                                clients[i].last_seen_time = time(NULL); 
                             }
                         }
                     }
 
-                    // UX Feature: Notify remaining player if they are alone
                     if (fsm.activePlayers == 1) {
                         Message wait_msg;
                         build_message(&wait_msg, WAITING, "Your friend left! Waiting for a new challenger to join...");
-                        for (int i = 0; i < MAX_CLIENTS; i++) {
-                            if (clients[i].sockID != -1) {
-                                send_message(clients[i].sockID, &wait_msg);
-                            }
-                        }
+                        broadcast_message(clients, MAX_CLIENTS, &wait_msg, (int (*)(int, void *))send_message);
                     }
                     unlock_data();
 
                     printf("Remaining players: %d. Returning to Lobby.\n", fsm.activePlayers);
-                    fsm.current = STATE_LOBBY;
                     fsm.currentQuestionIdx = 0;
                     fsm.answersReceived = 0;
+                    change_state(&fsm, STATE_LOBBY);
                 }
                 break;
         }
