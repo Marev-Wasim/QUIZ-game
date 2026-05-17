@@ -2,15 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-/* * Internal Helper: Calculates the elapsed time in seconds.
- * Integrated from: CALCULATE_RESULTS flow
- */
-double calculate_delta(struct timeval start, struct timeval end)
-{
-    return (double)(end.tv_sec - start.tv_sec) +
-           (double)(end.tv_usec - start.tv_usec) / 1000000.0;
-}
-
 void initialize(StateMachine *m)
 {
     m->current = STATE_LOBBY;
