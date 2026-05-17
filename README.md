@@ -4,7 +4,8 @@ Quiz game over sockets!
 ## Game Structure
 QUIZ-game/  
 ├── Client/   
-│   ├── main.c   
+│   ├── client.c
+│   └── Client.cbp
 ├── Game Helpers/   
 │   ├── parser.c  
 │   ├── player.h  
@@ -26,4 +27,5 @@ QUIZ-game/
 │   ├── Protocol.c  
 │   └── Protocol.h  
 └── Server/  
-    └── main.c  
+│   ├── Server.cbp
+    └── server.c  
