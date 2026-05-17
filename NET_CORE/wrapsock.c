@@ -64,3 +64,19 @@ ssize_t Recv(int fd, void *ptr, size_t nbytes, int flags)
         err_sys("recv error");
     return n;
 }
+
+
+void Connect(int fd, const struct sockaddr *sa, socklen_t salen)
+{
+    if (connect(fd, sa, salen) < 0)
+        err_sys("connect error");
+}
+
+void Inet_pton(int family, const char *strptr, void *addrptr)
+{
+    int n;
+    if ( (n = inet_pton(family, strptr, addrptr)) < 0)
+        err_sys("inet_pton error for %s", strptr); /* System error */
+    else if (n == 0)
+        err_quit("inet_pton invalid format for %s", strptr); /* Invalid address */
+}
