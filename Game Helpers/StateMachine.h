@@ -6,7 +6,12 @@ typedef enum
     STATE_SEND_QUESTION, 
     STATE_WAIT_FOR_ANSWERS, 
     STATE_CALCULATE_RESULTS, 
-    STATE_GAME_OVER
+    STATE_GAME_OVER,
+    STATE_SCORE_DISPLAY,  //----Added by Shahd----
+    STATE_ASK_REPLAY,     //----Added by Shahd----
+    STATE_WAIT_REPLAY     //----Added by Shahd---- 
+
+
 } MainState;
 
 typedef enum { LISTEN, PROCESSING, BROADCAST } SubState;
