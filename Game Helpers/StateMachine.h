@@ -26,7 +26,7 @@ typedef struct
     int activePlayers;     /* Number of players currently in the LOBBY */
     int answersReceived;   /* Counter to trigger transition from WAIT_FOR_ANSWERS */
     
-    struct timeval Q_sent_time; /* Used with gettimeofday() for speed bonuses */
+    long long Q_sent_time; /* Used for speed bonuses */
     time_t stateStartTime;
 } StateMachine;
 
