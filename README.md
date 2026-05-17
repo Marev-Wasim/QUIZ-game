@@ -2,6 +2,8 @@
 Quiz game over sockets!
 
 ## Game Structure
+
+```text
 QUIZ-game/  
 ├── Client/   
 │   ├── client.c
@@ -27,5 +29,5 @@ QUIZ-game/
 │   ├── Protocol.c  
 │   └── Protocol.h  
 └── Server/  
-│   ├── Server.cbp
-    └── server.c  
+    ├── Server.cbp
+    └── server.c
