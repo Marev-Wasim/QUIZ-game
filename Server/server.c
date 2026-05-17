@@ -8,14 +8,12 @@
 #include "../NET_CORE/config.h"
 #include "../NET_CORE/unp.h"
 
-
 #include "../Game Helpers/StateMachine.h"
 #include "../Game Helpers/player.h"
 #include "../Game Helpers/stability.h"
 #include "../Game Helpers/questions.h"
 #include "../Protocol/Protocol.h"
 #include "../Game Helpers/speed_bonus.h"
-
 
 void change_state(StateMachine *fsm, MainState new_state) {
     if (fsm) {
@@ -34,7 +32,7 @@ int main()
     init_bank(&bank, 10);
     printf("Loading question bank...\n");
     
-       if (load_questions("../Game Helpers/QuestionBank.dat", &bank) != 0) {
+    if (load_questions("../Game Helpers/QuestionBank.dat", &bank) != 0) {
         printf("Failed to load questions. Exiting.\n");
         exit(EXIT_FAILURE);
     }
@@ -59,7 +57,7 @@ int main()
     fsm.status = LISTEN;
     fsm.activePlayers = 0;
     fsm.answersReceived = 0;
-    change_state(&fsm, STATE_LOBBY);
+    change_state(&fsm, STATE_LOBBY); 
 
     long long score_display_start_ms = 0;
     long long replay_question_start_ms = 0;
@@ -88,8 +86,7 @@ int main()
     FD_ZERO(&rset);
     FD_SET(listen_sock, &rset);
 
-    printf(" Engine running securely with Optimized Time on port %d...\n", PORT);
-
+    printf("Engine running securely on port %d...\n", PORT);
 
     for(;;)
     {
@@ -97,27 +94,6 @@ int main()
         if (got_sigint) {
             cleanup_server(clients, MAX_CLIENTS, listen_sock);
             exit(EXIT_SUCCESS);
-        }
-
-        // System Health Checks
-        clean_zombie_processes(); 
-        watchdog_check(&fsm);
-
-        //Timeout Checks
-        for(int i = 0; i < MAX_CLIENTS; i++) {
-            if(clients[i].sockID != -1) {
-                if (last_msg_time_ms[i] > 0 && check_client_timeout(last_msg_time_ms[i])) {
-                    printf("[STABILITY] Player %d timed out.\n", clients[i].sockID);
-                    FD_CLR(clients[i].sockID, &rset);
-                    Close(clients[i].sockID);
-                    
-                    clients[i].sockID = -1;
-                    clients[i].responseTime = 0;
-                    last_msg_time_ms[i] = 0;
-                    msg_count[i] = 0;
-                    fsm.activePlayers--;
-                }
-            }
         }
 
         fd_set loop_set = rset;
@@ -194,10 +170,7 @@ int main()
                     if ((fsm.current == STATE_WAIT_FOR_ANSWERS || fsm.current == STATE_WAIT_REPLAY) && !clients[i].hasAnswered) {
                         clients[i].hasAnswered = true;
                         clients[i].lastAnswer = atoi(msg.data);
-                        
-                        // ⏱️ تسجيل وقت الإجابة باستخدام دالة الميلي ثانية
                         clients[i].responseTime = get_current_time_ms();
-                        
                         fsm.answersReceived++;
                         printf("Received valid answer '%d' from FD %d\n", clients[i].lastAnswer, current_sock);
                     }
@@ -214,13 +187,13 @@ int main()
                 }
                 if (fsm.activePlayers >= 2) {
                     printf("Enough players joined. Starting Game!\n");
-                    change_state(&fsm, STATE_SEND_QUESTION);
+                    change_state(&fsm, STATE_SEND_QUESTION); 
                 }
                 break;
 
             case STATE_SEND_QUESTION:
                 if (fsm.currentQuestionIdx >= bank.size) {
-                    change_state(&fsm, STATE_GAME_OVER);
+                    change_state(&fsm, STATE_GAME_OVER); 
                     break;
                 }
 
@@ -251,18 +224,16 @@ int main()
                 printf("Sent Question %d to all players.\n", fsm.currentQuestionIdx + 1);
 
                 fsm.Q_sent_time = get_current_time_ms();
-                
-                change_state(&fsm, STATE_WAIT_FOR_ANSWERS);
+                change_state(&fsm, STATE_WAIT_FOR_ANSWERS); 
                 break;
 
             case STATE_WAIT_FOR_ANSWERS:
                 {
                     long long current_time = get_current_time_ms();
-                    
                     if ((current_time - fsm.Q_sent_time >= QUESTION_TIMEOUT * 1000) ||
                         (fsm.answersReceived >= fsm.activePlayers && fsm.activePlayers > 0))
                     {
-                        change_state(&fsm, STATE_CALCULATE_RESULTS);
+                        change_state(&fsm, STATE_CALCULATE_RESULTS); 
                     }
                 }
                 break;
@@ -281,7 +252,7 @@ int main()
                     }
 
                     fsm.currentQuestionIdx++;
-                    change_state(&fsm, STATE_SEND_QUESTION);
+                    change_state(&fsm, STATE_SEND_QUESTION); // ✅
                 }
                 break;
 
@@ -346,13 +317,13 @@ int main()
 
                     printf("Displaying scores for 15 seconds...\n");
                     score_display_start_ms = get_current_time_ms();
-                    change_state(&fsm, STATE_SCORE_DISPLAY);
+                    change_state(&fsm, STATE_SCORE_DISPLAY); // ✅
                 }
                 break;
 
             case STATE_SCORE_DISPLAY:
                 if (get_current_time_ms() - score_display_start_ms >= 15000) {
-                    change_state(&fsm, STATE_ASK_REPLAY);
+                    change_state(&fsm, STATE_ASK_REPLAY); // ✅
                 }
                 break;
 
@@ -377,7 +348,7 @@ int main()
                 }
 
                 replay_question_start_ms = get_current_time_ms();
-                change_state(&fsm, STATE_WAIT_REPLAY);
+                change_state(&fsm, STATE_WAIT_REPLAY); // ✅
                 break;
 
             case STATE_WAIT_REPLAY:
@@ -419,13 +390,35 @@ int main()
                         fsm.currentQuestionIdx = 0;
                         fsm.answersReceived = 0;
                         
-                        // Trigger lobby cooldown
                         in_lobby_delay = true;
                         lobby_delay_start_ms = get_current_time_ms();
-                        change_state(&fsm, STATE_LOBBY);
+                        change_state(&fsm, STATE_LOBBY); // ✅
                     }
                 }
                 break;
+        }
+
+        clean_zombie_processes(); 
+        watchdog_check(&fsm);
+        
+        for(int i = 0; i < MAX_CLIENTS; i++) {
+            if(clients[i].sockID != -1) {
+                if (fsm.current == STATE_WAIT_FOR_ANSWERS || fsm.current == STATE_WAIT_REPLAY) {
+                    if (last_msg_time_ms[i] > 0 && check_client_timeout(last_msg_time_ms[i])) {
+                        printf("[STABILITY] Player %d timed out (No Answer).\n", clients[i].sockID);
+                        FD_CLR(clients[i].sockID, &rset);
+                        Close(clients[i].sockID);
+                        
+                        clients[i].sockID = -1;
+                        clients[i].responseTime = 0;
+                        last_msg_time_ms[i] = 0;
+                        msg_count[i] = 0;
+                        fsm.activePlayers--;
+                    }
+                } else {
+                    last_msg_time_ms[i] = get_current_time_ms();
+                }
+            }
         }
     }
 
