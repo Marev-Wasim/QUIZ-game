@@ -5,22 +5,32 @@
 #include <arpa/inet.h>
 #include <sys/time.h>
 #include <stdbool.h>
+#include <pthread.h> // لتعريف الأقفال محلياً
 
 #include "../NET_CORE/config.h"
 #include "../NET_CORE/unp.h"
 
-#include "../Game Helpers/player.h"
+
+#include "../Game Helpers/StateMachine.h"
 #include "../Game Helpers/stability.h"
 #include "../Game Helpers/questions.h"
-#include "../Game Helpers/StateMachine.h"
+#include "../Game Helpers/player.h"
 #include "../Protocol/Protocol.h"
 #include "../Game Helpers/speed_bonus.h"
 
+static pthread_mutex_t server_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void lock_data(void) {
+    pthread_mutex_lock(&server_mutex);
+}
+
+void unlock_data(void) {
+    pthread_mutex_unlock(&server_mutex);
+}
 int main()
 {
-    // Stability & Security Setup
+    // Stability Setup & Analytics
     setup_stability();
-    
     ServerStats stats;
     init_server_stats(&stats);
 
@@ -35,7 +45,7 @@ int main()
     }
     printf("Successfully loaded %zu questions.\n", bank.size);
 
-    // Server & StablePlayer Setup
+    // Server & StablePlayer Setup (Using stability struct)
     StablePlayer clients[MAX_CLIENTS];
     for(int i = 0; i < MAX_CLIENTS; i++)
     {
@@ -43,16 +53,17 @@ int main()
         reset_player(&clients[i]);
     }
 
-    // State Machine Initialization (Using new structures)
+    // State Machine Initialization
     StateMachine fsm;
     memset(&fsm, 0, sizeof(StateMachine));
-    change_state(&fsm, STATE_LOBBY); // Safe transition
     fsm.status = LISTEN;
-    
-    long replay_question_start_ms = 0;
-    long score_display_start_ms = 0;
+    change_state(&fsm, STATE_LOBBY); // Safe transition
 
-    //Network Socket Setup
+    long question_start_time_ms = 0;
+    long score_display_start_ms = 0;
+    long replay_question_start_ms = 0;
+
+    // Network Socket Setup
     struct in_addr my_ip;
     struct sockaddr_in my_sock_addr;
     int listen_sock;
@@ -77,8 +88,7 @@ int main()
     FD_ZERO(&rset);
     FD_SET(listen_sock, &rset);
 
-    printf("Engine running with STABILITY features. Waiting for players on port %d...\n", PORT);
-
+    printf("Engine running with Stability features. Waiting for players on port %d...\n", PORT);
 
     for(;;)
     {
@@ -95,8 +105,10 @@ int main()
             if(clients[i].sockID != -1) {
                 if (check_client_timeout(&clients[i])) {
                     printf("Player %d timed out due to inactivity.\n", clients[i].sockID);
+                    lock_data();
                     disconnect_player(&clients[i], &rset, &fsm);
                     stats.totalTimeouts++;
+                    unlock_data();
                 } else {
                     if (clients[i].sockID > maxfd) maxfd = clients[i].sockID;
                 }
@@ -122,7 +134,7 @@ int main()
                     lock_data();
                     reset_player(&clients[i]);
                     clients[i].sockID = conn_sock;
-                    safe_add_player(&fsm); // Using stability safe increment
+                    safe_add_player(&fsm);
                     stats.totalConnections++;
                     FD_SET(conn_sock, &rset);
                     unlock_data();
@@ -135,7 +147,7 @@ int main()
             }
         }
 
-        // Handle Incoming Data
+        // Handle Incoming Data from Current Players
         for(int i = 0; i < MAX_CLIENTS; i++)
         {
             int current_sock = clients[i].sockID;
@@ -150,18 +162,17 @@ int main()
                     else printf("Player %d dropped (Error).\n", current_sock);
 
                     lock_data();
-                    disconnect_player(&clients[i], &rset, &fsm); // Safe disconnect
+                    disconnect_player(&clients[i], &rset, &fsm);
                     stats.totalDisconnects++;
                     unlock_data();
                 }
                 else if(n > 0) // Received Data
                 {
-                    // 1. Update activity for timeout protection
+                    // 1. Update Activity
                     clients[i].last_seen_time = time(NULL);
 
                     // 2. Flood Control Check
                     if (!check_flood_control(current_sock, &clients[i].msg_count, &clients[i].last_msg_time_ms)) {
-                        printf("Disconnecting FD %d due to flood attack.\n", current_sock);
                         lock_data();
                         disconnect_player(&clients[i], &rset, &fsm);
                         stats.totalFloodViolations++;
@@ -191,7 +202,7 @@ int main()
             }
         }
 
-        // C. Game State Machine Logic
+        // Game State Machine Logic
         switch (fsm.current)
         {
             case STATE_LOBBY:
@@ -225,17 +236,22 @@ int main()
 
                 Message q_msg;
                 build_message(&q_msg, QUESTION, packet_data);
-                broadcast_message(clients, MAX_CLIENTS, &q_msg, (int (*)(int, void *))send_message); // Safe broadcast
+
+                for (int i = 0; i < MAX_CLIENTS; i++) {
+                    if (clients[i].sockID != -1) {
+                        send_message(clients[i].sockID, &q_msg);
+                    }
+                }
 
                 printf("Sent Question %d to all players.\n", fsm.currentQuestionIdx + 1);
                 stats.totalQuestionsSent++;
-                
+
                 gettimeofday(&fsm.Q_sent_time, NULL);
                 change_state(&fsm, STATE_WAIT_FOR_ANSWERS);
                 break;
 
             case STATE_WAIT_FOR_ANSWERS:
-                // Check using the new stability round status checker
+                // Protected Timeout Logic
                 if (check_game_round_status(&fsm, ((long long)fsm.Q_sent_time.tv_sec * 1000LL) + (fsm.Q_sent_time.tv_usec / 1000LL), QUESTION_TIMEOUT))
                 {
                     change_state(&fsm, STATE_CALCULATE_RESULTS);
@@ -349,7 +365,12 @@ int main()
                 Message replay_msg;
                 char replay_text[] = "Do you want to play another round?\n1) Yes, let's go!\n2) No, I want to quit\n3) -\n4) -";
                 build_message(&replay_msg, QUESTION, replay_text);
-                broadcast_message(clients, MAX_CLIENTS, &replay_msg, (int (*)(int, void *))send_message);
+                
+                for (int i = 0; i < MAX_CLIENTS; i++) {
+                    if (clients[i].sockID != -1) {
+                        send_message(clients[i].sockID, &replay_msg);
+                    }
+                }
 
                 replay_question_start_ms = get_current_time_ms();
                 change_state(&fsm, STATE_WAIT_REPLAY);
@@ -367,7 +388,7 @@ int main()
                                 printf("Player %d chose not to replay. Disconnecting...\n", clients[i].sockID);
                                 disconnect_player(&clients[i], &rset, &fsm);
                             } else {
-                                reset_player(&clients[i]); // Clean reset for next round
+                                reset_player(&clients[i]);
                                 clients[i].last_seen_time = time(NULL); 
                             }
                         }
@@ -376,7 +397,11 @@ int main()
                     if (fsm.activePlayers == 1) {
                         Message wait_msg;
                         build_message(&wait_msg, WAITING, "Your friend left! Waiting for a new challenger to join...");
-                        broadcast_message(clients, MAX_CLIENTS, &wait_msg, (int (*)(int, void *))send_message);
+                        for (int i = 0; i < MAX_CLIENTS; i++) {
+                            if (clients[i].sockID != -1) {
+                                send_message(clients[i].sockID, &wait_msg);
+                            }
+                        }
                     }
                     unlock_data();
 
