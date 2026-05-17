@@ -5,7 +5,7 @@
 #include <arpa/inet.h>
 #include <sys/time.h>
 #include <stdbool.h>
-#include <pthread.h> // لتعريف الأقفال محلياً
+#include <pthread.h> 
 
 #include "../NET_CORE/config.h"
 #include "../NET_CORE/unp.h"
