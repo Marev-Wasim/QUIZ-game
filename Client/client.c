@@ -63,22 +63,15 @@ int main() {
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(PORT); // استخدمنا PORT اللي جاية من config.h
 
-    if (inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr) <= 0) {
-        perror(COLOR_RED "Invalid address" COLOR_RESET);
-        exit(EXIT_FAILURE);
-    }
+    // الدالة الكابيتال بتعمل التشيك لوحدها
+    Inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr);
 
     printf(COLOR_BLUE "\nConnecting to the arena...\n" COLOR_RESET);
 
-    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        perror(COLOR_RED "Connection Failed" COLOR_RESET);
-        exit(EXIT_FAILURE);
-    }
-    printf(COLOR_GREEN "Connected successfully! Get ready, %s!\n" COLOR_RESET, player_name);
+    // الدالة الكابيتال بتعمل التشيك وتقفل لوحدها لو السيرفر مش شغال
+    Connect(sockfd, (SA *)&serv_addr, sizeof(serv_addr));
 
-    // السطر ده بينضف أي زوايد في الكيبورد (زي زرار الـ Enter) عشان ميعلقش اللوب
-    int c;
-    while ((c = getchar()) != '\n' && c != EOF);
+    printf(COLOR_GREEN "Connected successfully! Get ready, %s!\n" COLOR_RESET, player_name);
 
     fd_set readfds;
     int max_sd = (sockfd > STDIN_FILENO) ? sockfd : STDIN_FILENO;
@@ -118,7 +111,6 @@ int main() {
 
                 case GAME_RESULT:
                     print_banner();
-                    printf(COLOR_MAGENTA "🏆 GAME OVER! 🏆\n\n" COLOR_RESET);
                     type_text(msg.data, COLOR_GREEN);
                     printf(COLOR_YELLOW "\nWaiting for the next round...\n" COLOR_RESET);
                     break;
