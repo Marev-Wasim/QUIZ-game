@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <signal.h>
 #include <sys/time.h>
-#include <sys/wait.h> // إضافة للحماية وتنظيف الـ Zombies
+#include <sys/wait.h>
 
 #include "player.h"
 #include "StateMachine.h"
