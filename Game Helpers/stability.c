@@ -1,86 +1,41 @@
 #include "stability.h"
 
-#include <signal.h>
-#include <sys/wait.h>
-#include <arpa/inet.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/socket.h>
 
-// Global flags for safe signal handling (Async-Signal-Safe)
 volatile sig_atomic_t got_sigint = 0;
-volatile sig_atomic_t got_sigchld = 0;
 
-void handle_sigint(int sig)
+StabilityMetrics g_metrics = {0};
+
+static void handle_sigint(int sig)
 {
     (void)sig;
     got_sigint = 1;
 }
 
-void handle_zombies(int sig)
+void setup_stability()
 {
-    (void)sig;
-    got_sigchld = 1;
+    struct sigaction sa;
+
+    memset(&sa, 0, sizeof(sa));
+
+    sa.sa_handler = handle_sigint;
+
+    sigemptyset(&sa.sa_mask);
+
+    sa.sa_flags = 0;
+
+    sigaction(SIGINT, &sa, NULL);
+
+    printf("[STABILITY] Initialized Successfully\n");
 }
 
-// Reaps zombie processes safely outside signal handler
-void clean_zombie_processes(void)
-{
-    if (got_sigchld)
-    {
-        got_sigchld = 0;
-        while(waitpid(-1, NULL, WNOHANG) > 0);
-    }
-}
-
-// Initializes all stability protections
-void setup_stability(void)
-{
-    struct sigaction sa_chld;
-    struct sigaction sa_pipe;
-    struct sigaction sa_int;
-
-    sa_chld.sa_handler = handle_zombies;
-
-    sigemptyset(&sa_chld.sa_mask);
-
-    sa_chld.sa_flags =
-        SA_RESTART | SA_NOCLDSTOP;
-
-    sigaction(
-        SIGCHLD,
-        &sa_chld,
-        NULL
-    );
-
-    sa_pipe.sa_handler = SIG_IGN;
-
-    sigemptyset(&sa_pipe.sa_mask);
-
-    sa_pipe.sa_flags = 0;
-
-    sigaction(
-        SIGPIPE,
-        &sa_pipe,
-        NULL
-    );
-
-    sa_int.sa_handler = handle_sigint;
-
-    sigemptyset(&sa_int.sa_mask);
-
-    sa_int.sa_flags = 0;
-
-    sigaction(
-        SIGINT,
-        &sa_int,
-        NULL
-    );
-
-    printf(
-        "[STABILITY] Full protection layer initialized.\n"
-    );
-}
-
-// Returns current time in milliseconds with overflow protection
-long long get_current_time_ms(void)
+long long get_current_time_ms()
 {
     struct timeval tv;
 
@@ -91,559 +46,249 @@ long long get_current_time_ms(void)
         ((long long)tv.tv_usec / 1000LL);
 }
 
-// Validates FSM states
-bool is_valid_state(GameState state)
+void set_nonblocking(int sock)
 {
-    return
-        (state >= STATE_LOBBY &&
-         state <= STATE_GAME_OVER);
-}
+    int flags = fcntl(sock, F_GETFL, 0);
 
-// Validates incoming packet size
-bool validate_packet_size(int n)
-{
-    return
-        (n > 0 &&
-         n <= MAX_PACKET_SIZE);
-}
-
-// Validates player structure
-bool is_valid_player(StablePlayer *p)
-{
-    return
-        (p != NULL &&
-         p->sockID >= 0);
-}
-
-// Checks current round status
-bool check_game_round_status(
-    StateMachine *fsm,
-    long long question_start_time_ms,
-    int timeout_sec
-)
-{
-    if(fsm == NULL)
-        return false;
-
-    if(fsm->activePlayers <= 0)
-    {
-        printf(
-            "[WARNING] No active players.\n"
-        );
-
-        change_state(
-            fsm,
-            STATE_LOBBY
-        );
-
-        return false;
-    }
-
-    long long current_time =
-        get_current_time_ms();
-
-    long long elapsed =
-        current_time -
-        question_start_time_ms;
-
-    if(elapsed >= (long long)timeout_sec * 1000LL)
-    {
-        return true;
-    }
-
-    if(fsm->answersReceived >=
-       fsm->activePlayers)
-    {
-        return true;
-    }
-
-    return false;
-}
-
-// Safely increments player count
-void safe_add_player(StateMachine *fsm)
-{
-    if(fsm == NULL)
+    if (flags == -1)
         return;
 
-    fsm->activePlayers++;
+    fcntl(
+        sock,
+        F_SETFL,
+        flags | O_NONBLOCK
+    );
 }
 
-// Safely decrements player count
-void safe_remove_player(StateMachine *fsm)
+void reset_player(Player *p)
 {
-    if(fsm == NULL)
+    if (!p)
         return;
 
-    if(fsm->activePlayers > 0)
-    {
-        fsm->activePlayers--;
-    }
-
-    if(fsm->answersReceived >
-       fsm->activePlayers)
-    {
-        fsm->answersReceived =
-            fsm->activePlayers;
-    }
-}
-
-// Resets all player values
-void reset_player(StablePlayer *p)
-{
-    if(p == NULL)
-        return;
-
+    p->sockID = -1;
     p->score = 0;
-
     p->hasAnswered = false;
-
     p->lastAnswer = -1;
-
-    p->responseTime.tv_sec = 0;
-
-    p->responseTime.tv_usec = 0;
-
     p->msg_count = 0;
-
-    p->last_msg_time_ms =
-        get_current_time_ms();
-
-    p->last_seen_time =
-        time(NULL);
-
-    p->awaiting_pong = false;
-
-    p->last_ping_time = time(NULL);
-
-    p->last_sequence = 0;
-
-    p->latency_ms = 0.0;
-}
-
-// Writes logs into server.log
-void server_log(const char *msg)
-{
-    FILE *f =
-        fopen("server.log", "a");
-
-    if(f == NULL)
-        return;
-
-    time_t now = time(NULL);
-
-    char *t = ctime(&now);
-
-    if(t != NULL)
-    {
-        t[strcspn(t, "\n")] = '\0';
-
-        fprintf(
-            f,
-            "[%s] %s\n",
-            t,
-            msg
-        );
-    }fclose(f);
-}
-
-// Writes advanced logs with levels
-void server_log_ex(
-    LogLevel level,
-    const char *msg
-)
-{
-    char final_msg[1024];
-
-    const char *level_str;
-
-    switch(level)
-    {
-        case LOG_INFO:
-            level_str = "INFO";
-            break;
-
-        case LOG_WARNING:
-            level_str = "WARNING";
-            break;
-
-        case LOG_ERROR:
-            level_str = "ERROR";
-            break;
-
-        case LOG_SECURITY:
-            level_str = "SECURITY";
-            break;
-
-        default:
-            level_str = "UNKNOWN";
-    }
-
-    snprintf(
-        final_msg,
-        sizeof(final_msg),
-        "[%s] %s",
-        level_str,
-        msg
-    );
-
-    server_log(final_msg);
-}
-
-// Converts state enums into readable strings
-const char* get_state_name(GameState state)
-{
-    switch(state)
-    {
-        case STATE_LOBBY:
-            return "LOBBY";
-
-        case STATE_SEND_QUESTION:
-            return "SEND_QUESTION";
-
-        case STATE_WAIT_FOR_ANSWERS:
-            return "WAIT_FOR_ANSWERS";
-
-        case STATE_CALCULATE_RESULTS:
-            return "CALCULATE_RESULTS";
-
-        case STATE_GAME_OVER:
-            return "GAME_OVER";
-
-        default:
-            return "UNKNOWN_STATE";
-    }
-}
-
-// Safely changes FSM states
-void change_state(
-    StateMachine *fsm,
-    GameState new_state
-)
-{
-    if(fsm == NULL)
-        return;
-
-    char msg[256];
-
-    snprintf(
-        msg,
-        sizeof(msg),
-        "STATE TRANSITION: %s -> %s",
-        get_state_name(fsm->current),
-        get_state_name(new_state)
-    );
-
-    printf("[ENGINE] %s\n", msg);
-
-    server_log_ex(
-        LOG_INFO,
-        msg
-    );
-
-    fsm->current = new_state;
-
-    fsm->stateStartTime =
-        time(NULL);
-}
-
-// Displays runtime diagnostics
-void print_server_health(
-    StateMachine *fsm,
-    ServerStats *stats
-)
-{
-    if(fsm == NULL || stats == NULL)
-        return;
-
-    printf("\n=================================\n");
-
-    printf("SERVER HEALTH STATUS\n");
-
-    printf("=================================\n");
-
-    printf("Current State       : %s\n",
-           get_state_name(fsm->current));
-
-    printf("Active Players      : %d\n",
-           fsm->activePlayers);
-
-    printf("Answers Received    : %d\n",
-           fsm->answersReceived);
-
-    printf("Current Question    : %zu\n",
-           fsm->currentQuestionIdx);
-
-    printf("---------------------------------\n");
-
-    printf("Total Questions     : %ld\n",
-           stats->totalQuestionsSent);
-
-    printf("Total Answers       : %ld\n",
-           stats->totalAnswersReceived);
-
-    printf("Total Games         : %ld\n",
-           stats->totalGamesPlayed);
-
-    printf("Total Disconnects   : %ld\n",
-           stats->totalDisconnects);
-
-    printf("Total Connections   : %ld\n",
-           stats->totalConnections);
-
-    printf("=================================\n");
-}
-
-// Detects frozen states
-bool watchdog_check(StateMachine *fsm)
-{
-    if(fsm == NULL)
-        return false;
-
-    if(fsm->current == STATE_LOBBY)
-        return true;
-
-    time_t now = time(NULL);
-
-    double elapsed =
-        difftime(
-            now,
-            fsm->stateStartTime
-        );
-
-    if(elapsed > MAX_STATE_TIME_SEC)
-    {
-        printf(
-            "[WATCHDOG] State freeze detected.\n"
-        );
-
-        change_state(
-            fsm,
-            STATE_LOBBY
-        );
-
-        fsm->status = LISTEN;
-
-        fsm->answersReceived = 0;
-
-        fsm->currentQuestionIdx = 0;
-
-        return false;
-    }
-
-    return true;
-}
-
-// Initializes analytics counters
-void init_server_stats(ServerStats *stats)
-{
-    if(stats == NULL)
-        return;
+    p->last_msg_time_ms = 0;
 
     memset(
-        stats,
+        &p->responseTime,
         0,
-        sizeof(ServerStats)
+        sizeof(struct timeval)
     );
 }
 
-// Prevents flooding attacks
 bool check_flood_control(
-    int client_fd,
+    int sock,
     int *msg_count,
     long long *last_msg_time_ms
 )
 {
-    long long now =
+    long long current_time =
         get_current_time_ms();
 
-    if(now - *last_msg_time_ms < 1000LL)
+    if (*last_msg_time_ms == 0)
+    {
+        *last_msg_time_ms = current_time;
+        *msg_count = 1;
+        return true;
+    }
+
+    if (
+        current_time - *last_msg_time_ms <
+        1000LL
+    )
     {
         (*msg_count)++;
+
+        if (*msg_count > MAX_MSG_PER_SECOND)
+        {
+            g_metrics.flood_attempts++;
+
+            printf(
+                "[SECURITY] Flood detected on socket %d\n",
+                sock
+            );
+
+            return false;
+        }
     }
     else
     {
         *msg_count = 1;
+        *last_msg_time_ms = current_time;
+    }
 
-        *last_msg_time_ms = now;
-    }if(*msg_count > FLOOD_LIMIT)
+    return true;
+}
+
+bool validate_message(Message *msg)
+{
+    if (!msg)
+        return false;
+
+    if (
+        msg->length < 0 ||
+        msg->length > 1024
+    )
     {
-        printf(
-            "[SECURITY] Flood detected from FD %d\n",
-            client_fd
-        );
+        g_metrics.invalid_packets++;
+        return false;
+    }
 
+    if (
+        msg->type < JOIN ||
+        msg->type > WAITING
+    )
+    {
+        g_metrics.invalid_packets++;
         return false;
     }
 
     return true;
 }
 
-// Detects inactive clients
-bool check_client_timeout(
-    StablePlayer *p
+bool safe_receive_message(
+    int sockfd,
+    Message *msg
 )
 {
-    if(p == NULL)
+    int result =
+        receive_message(sockfd, msg);
+
+    if (result != PROTO_OK)
+    {
         return false;
+    }
 
-    time_t now = time(NULL);
+    if (!validate_message(msg))
+    {
+        return false;
+    }
 
-    double idle =
-        difftime(
-            now,
-            p->last_seen_time
-        );
+    return true;
+}
+
+bool check_client_timeout(
+    long long last_activity
+)
+{
+    long long current_time =
+        get_current_time_ms();
 
     return
-        (idle > INACTIVE_LIMIT_SEC);
+        (
+            current_time -
+            last_activity
+        ) > CLIENT_TIMEOUT_MS;
 }
 
-// Checks heartbeat health
-bool heartbeat_check(
-    StablePlayer *p
-)
-{
-    if(p == NULL)
-        return false;
-
-    time_t now = time(NULL);
-
-    double elapsed =
-        difftime(
-            now,
-            p->last_ping_time
-        );
-
-    if(p->awaiting_pong &&
-       elapsed > HEARTBEAT_INTERVAL_SEC)
-    {
-        return false;
-    }
-
-    return true;
-}
-
-// Safely closes sockets
-void safe_close(int *fd)
-{
-    if(fd == NULL)
-        return;
-
-    if(*fd != -1)
-    {
-        close(*fd);
-
-        *fd = -1;
-    }
-}
-
-// Safely disconnects players
-void disconnect_player(
-    StablePlayer *p,
-    fd_set *rset,
+void watchdog_check(
     StateMachine *fsm
 )
 {
-    if(p == NULL)
-        return;
+    time_t now = time(NULL);
 
-    if(rset != NULL && p->sockID != -1)
+    if (
+        fsm->current ==
+        STATE_WAIT_FOR_ANSWERS &&
+        (
+            now -
+            fsm->stateStartTime
+        ) > 30
+    )
     {
-        FD_CLR(
-            p->sockID,
-            rset
+        g_metrics.watchdog_resets++;
+
+        printf(
+            "[WATCHDOG] Freeze detected. Recovering...\n"
+        );
+
+        change_state(
+            fsm,
+            STATE_CALCULATE_RESULTS
         );
     }
-
-    safe_close(
-        &p->sockID
-    );
-
-    safe_remove_player(fsm);
-
-    reset_player(p);
 }
 
-// Handles fatal server errors
-void fatal_error(
-    ServerError err,
-    const char *details
+bool handle_lobby_cooldown(
+    long long *cooldown_start,
+    bool *in_cooldown
 )
 {
-    char msg[512];
+    if (!(*in_cooldown))
+        return false;
 
-    snprintf(
-        msg,
-        sizeof(msg),
-        "FATAL ERROR [%d]: %s",
-        err,
-        details
-    );
+    long long current_time =
+        get_current_time_ms();
 
-    server_log_ex(
-        LOG_ERROR,
-        msg
-    );
-
-    fprintf(
-        stderr,
-        "%s\n",
-        msg
-    );
-
-    exit(EXIT_FAILURE);
-}
-
-// Broadcasts packets to all clients
-void broadcast_message(
-    StablePlayer players[],
-    int max_players,
-    void *msg,
-    int (*send_func)(int, void *)
-)
-{
-    if(players == NULL ||
-       send_func == NULL)
+    if (
+        current_time -
+        *cooldown_start >= 4000LL
+    )
     {
-        return;
+        *in_cooldown = false;
+
+        printf(
+            "[STABILITY] Cooldown Finished\n"
+        );
+
+        return false;
     }
 
-    for(int i = 0; i < max_players; i++)
-    {
-        if(players[i].sockID != -1)
-        {
-            send_func(
-                players[i].sockID,
-                msg
-            );
-        }
-    }
+    return true;
 }
 
-// Releases all server resources
 void cleanup_server(
-    StablePlayer players[],
-    int max_players,
+    Player *clients,
+    int max_clients,
     int listen_sock
 )
 {
-    for(int i = 0; i < max_players; i++)
+    printf(
+        "[STABILITY] Graceful Shutdown Started\n"
+    );
+
+    Message exit_msg;
+
+    build_message(
+        &exit_msg,
+        WAITING,
+        "Server shutting down"
+    );
+for (int i = 0; i < max_clients; i++)
     {
-        if (players[i].sockID != -1)
+        if (clients[i].sockID != -1)
         {
-            safe_close(
-                &players[i].sockID
+            send_message(
+                clients[i].sockID,
+                &exit_msg
+            );
+
+            shutdown(
+                clients[i].sockID,
+                SHUT_RDWR
+            );
+
+            close(
+                clients[i].sockID
+            );
+
+            reset_player(
+                &clients[i]
             );
         }
     }
 
-    safe_close(
-        &listen_sock
+    shutdown(
+        listen_sock,
+        SHUT_RDWR
     );
 
-    server_log_ex(
-        LOG_INFO,
-        "Server resources cleaned successfully."
+    close(listen_sock);
+
+    printf(
+        "[STABILITY] Shutdown Complete\n"
     );
 }
