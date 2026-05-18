@@ -40,7 +40,6 @@ int load_questions(const char *filename, QuestionBank *bank)
         // Remove trailing newline
         line[strcspn(line, "\n")] = 0;
 
-        // السطران التاليان هما ما يبحث عنهما المترجم لحل الخطأ
         Question q;
         char *token = strtok(line, "|");
 
