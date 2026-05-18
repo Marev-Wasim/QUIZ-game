@@ -1,0 +1,128 @@
+# depslib dependency file v1.0
+1779052740 source:/Users/shahd/Desktop/QUIZ-game-main/Game Helpers/parser.c
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	"stability.h"
+	"questions.h"
+
+1779009980 /Users/shahd/Desktop/QUIZ-game-main/Game Helpers/stability.h
+	<stdbool.h>
+	<signal.h>
+	<sys/time.h>
+	<sys/wait.h>
+	"player.h"
+	"StateMachine.h"
+	"../Protocol/Protocol.h"
+
+1779064252 /Users/shahd/Desktop/QUIZ-game-main/Game Helpers/player.h
+	<stdio.h>
+	<stdlib.h>
+	<stdbool.h>
+	<string.h>
+	<sys/time.h>
+	"../NET_CORE/config.h"
+	"../NET_CORE/unp.h"
+
+1779050755 /Users/shahd/Desktop/QUIZ-game-main/Game Helpers/StateMachine.h
+	<sys/time.h>
+	<time.h>
+
+1779009980 /Users/shahd/Desktop/QUIZ-game-main/Protocol/Protocol.h
+	<string.h>
+	<arpa/inet.h>
+
+1779009980 /Users/shahd/Desktop/QUIZ-game-main/Game Helpers/questions.h
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+
+1779049994 source:/Users/shahd/Desktop/QUIZ-game-main/Game Helpers/speed_bonus.c
+	"speed_bonus.h"
+	<math.h>
+
+1779009980 /Users/shahd/Desktop/QUIZ-game-main/Game Helpers/speed_bonus.h
+	<sys/time.h>
+	"player.h"
+
+1779061462 source:/Users/shahd/Desktop/QUIZ-game-main/Game Helpers/StateMachine.c
+	"StateMachine.h"
+	<stdio.h>
+	<stdlib.h>
+
+1779009980 source:/Users/shahd/Desktop/QUIZ-game-main/NET_CORE/error.c
+	"unp.h"
+	<stdarg.h>
+
+1779009980 /Users/shahd/Desktop/QUIZ-game-main/NET_CORE/unp.h
+	<sys/types.h>
+	<sys/socket.h>
+	<sys/time.h>
+	<time.h>
+	<netinet/in.h>
+	<arpa/inet.h>
+	<errno.h>
+	<fcntl.h>
+	<netdb.h>
+	<signal.h>
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	<sys/stat.h>
+	<sys/uio.h>
+	<unistd.h>
+	<sys/wait.h>
+	<sys/select.h>
+
+1779009980 source:/Users/shahd/Desktop/QUIZ-game-main/NET_CORE/wrapsock.c
+	"unp.h"
+
+1779009980 source:/Users/shahd/Desktop/QUIZ-game-main/NET_CORE/wrapunix.c
+	"unp.h"
+
+1779009980 /Users/shahd/Desktop/QUIZ-game-main/NET_CORE/config.h
+
+1779052043 source:/Users/shahd/Desktop/QUIZ-game-main/Game Helpers/stability.c
+	"stability.h"
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	<unistd.h>
+	<fcntl.h>
+	<errno.h>
+	<sys/socket.h>
+
+1779065684 source:/Users/shahd/Desktop/QUIZ-game-main/Server/server.c
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	<unistd.h>
+	<arpa/inet.h>
+	<stdbool.h>
+	"../NET_CORE/config.h"
+	"../NET_CORE/unp.h"
+	"../Game Helpers/server_ui.h"
+	"../Game Helpers/StateMachine.h"
+	"../Game Helpers/player.h"
+	"../Game Helpers/stability.h"
+	"../Game Helpers/questions.h"
+	"../Protocol/Protocol.h"
+	"../Game Helpers/speed_bonus.h"
+
+1779052401 source:/Users/shahd/Desktop/QUIZ-game-main/Protocol/Protocol.c
+	"Protocol.h"
+	<string.h>
+	<errno.h>
+	<sys/socket.h>
+	<unistd.h>
+	"../NET_CORE/unp.h"
+
+1779067231 source:/Users/shahd/Desktop/QUIZ-game-main/Game Helpers/server_ui.c
+	<stdio.h>
+	<string.h>
+	"server_ui.h"
+	"../Game Helpers/speed_bonus.h"
+
+1779067256 /Users/shahd/Desktop/QUIZ-game-main/Game Helpers/server_ui.h
+	"player.h"
+
