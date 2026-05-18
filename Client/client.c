@@ -3,6 +3,7 @@
 #include "../NET_CORE/config.h"
 #include "../Protocol/Protocol.h" // عدلنا المسار عشان يقرأ من فولدر البروتوكول
 #include <sys/select.h>
+#include <unistd.h>
 
 // ================= ألوان الـ Terminal =================
 #define COLOR_RED     "\x1b[31m"
@@ -14,21 +15,29 @@
 #define COLOR_RESET   "\x1b[0m"
 #define CLEAR_SCREEN  "\033[2J\033[H"
 
+// تعريف احتياطي للـ WAITING
+#ifndef WAITING
+#define WAITING 9
+#endif
+
 // مش محتاجين نعرف الـ PORT هنا خلاص، هيتقرأ من config.h
 #define SERVER_IP "127.0.0.1"
 
 // (Typing Animation)
-void type_text(const char* text, const char* color) {
+void type_text(const char* text, const char* color)
+{
     printf("%s", color);
-    for (int i = 0; text[i] != '\0'; i++) {
+    for (int i = 0; text[i] != '\0'; i++)
+    {
         putchar(text[i]);
         fflush(stdout);
-        usleep(10000);
+        usleep(15000);
     }
     printf("%s\n", COLOR_RESET);
 }
 
-void print_banner() {
+void print_banner()
+{
     printf(CLEAR_SCREEN);
     printf(COLOR_MAGENTA);
     printf("==================================================\n");
@@ -37,7 +46,8 @@ void print_banner() {
     printf(COLOR_RESET);
 }
 
-int main() {
+int main()
+{
     char player_name[64];
 
     print_banner();
@@ -67,12 +77,19 @@ int main() {
     Connect(sockfd, (SA *)&serv_addr, sizeof(serv_addr));
 
     printf(COLOR_GREEN "Connected successfully! Get ready, %s!\n" COLOR_RESET, player_name);
-
+    
+   //--Added by shahd
+    usleep(50000);
+    Message join_msg;
+    build_message(&join_msg, JOIN, player_name);
+    send_message(sockfd, &join_msg);
     fd_set readfds;
+    //----
     int max_sd = (sockfd > STDIN_FILENO) ? sockfd : STDIN_FILENO;
 
     // الـ Game Loop الرئيسي
-    while (1) {
+    while (1)
+    {
         FD_ZERO(&readfds);
         FD_SET(sockfd, &readfds);
         FD_SET(STDIN_FILENO, &readfds);
@@ -81,53 +98,61 @@ int main() {
         Select(max_sd + 1, &readfds, NULL, NULL, NULL);
 
         // 1. لو في رسالة جاية من السيرفر
-        if (FD_ISSET(sockfd, &readfds)) {
+        if (FD_ISSET(sockfd, &readfds))
+        {
             Message msg;
             int status = receive_message(sockfd, &msg);
 
             // هنا خلينا الكلاينت يطبع رقم الإيرور عشان لو فصل نعرف المشكلة فين
-            if (status == PROTO_ERR_DISCONNECT || status < 0) {
+            if (status == PROTO_ERR_DISCONNECT || status < 0)
+            {
                 printf(COLOR_RED "\n[!] Connection Error! Status Code: %d\n" COLOR_RESET, status);
                 break;
             }
 
-            switch (msg.type) {
-                case WAITING:
-                    printf(COLOR_YELLOW "\n⏳ %s\n" COLOR_RESET, msg.data);
-                    break;
+            switch (msg.type)
+            {
+            case WAITING:
+                printf(COLOR_YELLOW "\n⏳ %s\n" COLOR_RESET, msg.data);
+                break;
 
-                case QUESTION:
-                    print_banner();
-                    printf(COLOR_BLUE "Target locked, %s! Answer quickly!\n\n" COLOR_RESET, player_name);
-                    type_text(msg.data, COLOR_CYAN);
-                    printf(COLOR_YELLOW "\n> Your Answer (1-4): " COLOR_RESET);
-                    fflush(stdout);
-                    break;
+            case QUESTION:
+                print_banner();
+                printf(COLOR_BLUE "Target locked, %s! Answer quickly!\n\n" COLOR_RESET, player_name);
+                type_text(msg.data, COLOR_CYAN);
+                printf(COLOR_YELLOW "\n> Your Answer (1-4): " COLOR_RESET);
+                fflush(stdout);
+                break;
 
-                case GAME_RESULT:
-                    print_banner();
-                    type_text(msg.data, COLOR_GREEN);
-                    printf(COLOR_YELLOW "\nWaiting for the next round...\n" COLOR_RESET);
-                    break;
+            case GAME_RESULT:
+                print_banner();
+                type_text(msg.data, COLOR_GREEN);
+                printf(COLOR_YELLOW "\nWaiting for the next round...\n" COLOR_RESET);
+                break;
 
-                default:
-                    printf(COLOR_CYAN "Server: %s\n" COLOR_RESET, msg.data);
-                    break;
+            default:
+                printf(COLOR_CYAN "Server: %s\n" COLOR_RESET, msg.data);
+                break;
             }
         }
 
         // 2. لو اللاعب دخل إجابة من الكيبورد
-        if (FD_ISSET(STDIN_FILENO, &readfds)) {
+        if (FD_ISSET(STDIN_FILENO, &readfds))
+        {
             char input[10];
-            if (fgets(input, sizeof(input), stdin) != NULL) {
+            if (fgets(input, sizeof(input), stdin) != NULL)
+            {
                 input[strcspn(input, "\n")] = 0;
 
-                if (strlen(input) > 0 && input[0] >= '1' && input[0] <= '4') {
+                if (strlen(input) > 0 && input[0] >= '1' && input[0] <= '4')
+                {
                     Message answer_msg;
                     build_message(&answer_msg, ANSWER, input);
                     send_message(sockfd, &answer_msg);
                     printf(COLOR_GREEN "✓ Answer locked in! Waiting for others...\n" COLOR_RESET);
-                } else {
+                }
+                else
+                {
                     printf(COLOR_RED "Invalid input! Please enter a number between 1 and 4.\n" COLOR_RESET);
                     printf(COLOR_YELLOW "> Your Answer (1-4): " COLOR_RESET);
                     fflush(stdout);
