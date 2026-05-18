@@ -34,7 +34,6 @@ typedef struct
 void initialize(StateMachine *m);
 void update(StateMachine *m);
 
-// 🔄 تعريف الدالة هنا لكي يراها ملف stability-3.c في السطر 208
 void change_state(StateMachine *fsm, MainState new_state);
 
 #endif
