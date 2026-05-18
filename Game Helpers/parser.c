@@ -55,7 +55,7 @@ int load_questions(const char *filename, QuestionBank *bank)
                 if (token)
                 {
                     strncpy(q.options[i], token, sizeof(q.options[i]));
-                    q.options[i][sizeof(q.options[i]) - 1] = '\0'; // الحماية التي أضفناها سابقاً
+                    q.options[i][sizeof(q.options[i]) - 1] = '\0'; 
                 }
             }
 
