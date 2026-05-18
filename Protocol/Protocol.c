@@ -1,12 +1,22 @@
 #include "Protocol.h"
 #include <string.h>
 #include <errno.h>
+#include <sys/socket.h>      // Added by shahd
+#include <unistd.h>          // Added by shahd
+#include "../NET_CORE/unp.h" // Added by shahd
 
 void build_message(Message* msg, int type, const char* data) {
     msg->type = type;
+
+    //----Added by shahd
     msg->length = strlen(data);
-    strncpy(msg->data, data, 1023);
-    msg->data[1023] = '\0';
+    if (msg->length > 1023) {
+        msg->length = 1023;
+    }
+
+    strncpy(msg->data, data, msg->length);
+    msg->data[msg->length] = '\0'; 
+    //----
 }
 
 int deserialize(char *buffer, int n, Message *msg) {
