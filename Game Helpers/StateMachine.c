@@ -84,6 +84,6 @@ void change_state(StateMachine *fsm, MainState new_state)
 {
     if (fsm) {
         fsm->current = new_state;
-        fsm->stateStartTime = time(NULL); // ⏱️ هذا السطر السحري هو ما يعيد ضبط ساعة السيرفر
+        fsm->stateStartTime = time(NULL); 
     }
 }
